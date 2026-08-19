@@ -326,8 +326,8 @@ else:
                                 if aluno_data:  
                                     upd = {"presencas": (aluno_data.get("presencas") or 0) + 1}  
                                     restantes = aluno_data.get("aulas_restantes") or 0  
-                                    if aluno_data.get("tipo_cobranca") == "pacote" and restantes > 0:  
-                                        upd["aulas_restantes"] = restantes - 1  
+                                    if aluno_data.get("tipo_cobranca") == "pacote":  
+                                        upd["aulas_restantes"] = max(0, restantes - 1)  
                                     supabase.table("alunos").update(upd).eq("id", aluno_data["id"]).execute()  
                                 st.rerun()  
   
@@ -337,8 +337,8 @@ else:
                                 if aluno_data:  
                                     upd = {"faltas": (aluno_data.get("faltas") or 0) + 1}  
                                     restantes = aluno_data.get("aulas_restantes") or 0  
-                                    if aluno_data.get("tipo_cobranca") == "pacote" and restantes > 0:  
-                                        upd["aulas_restantes"] = restantes - 1  
+                                    if aluno_data.get("tipo_cobranca") == "pacote":  
+                                        upd["aulas_restantes"] = max(0, restantes - 1)  
                                     supabase.table("alunos").update(upd).eq("id", aluno_data["id"]).execute()  
                                 st.rerun()  
   
@@ -390,8 +390,8 @@ else:
                                 if aluno_data:  
                                     upd = {"presencas": (aluno_data.get("presencas") or 0) + 1}  
                                     restantes = aluno_data.get("aulas_restantes") or 0  
-                                    if aluno_data.get("tipo_cobranca") == "pacote" and restantes > 0:  
-                                        upd["aulas_restantes"] = restantes - 1  
+                                    if aluno_data.get("tipo_cobranca") == "pacote":  
+                                        upd["aulas_restantes"] = max(0, restantes - 1)  
                                     supabase.table("alunos").update(upd).eq("id", aluno_data["id"]).execute()  
                                 st.rerun()  
                                   
@@ -401,8 +401,8 @@ else:
                                 if aluno_data:  
                                     upd = {"faltas": (aluno_data.get("faltas") or 0) + 1}  
                                     restantes = aluno_data.get("aulas_restantes") or 0  
-                                    if aluno_data.get("tipo_cobranca") == "pacote" and restantes > 0:  
-                                        upd["aulas_restantes"] = restantes - 1  
+                                    if aluno_data.get("tipo_cobranca") == "pacote":  
+                                        upd["aulas_restantes"] = max(0, restantes - 1)  
                                     supabase.table("alunos").update(upd).eq("id", aluno_data["id"]).execute()  
                                 st.rerun()  
                                   
@@ -453,7 +453,7 @@ else:
                         valor_devido = float(aluno.get("valor_pacote") or 0.0)  
                     else:  
                         valor_devido = total_computado * float(aluno.get("valor_aula") or 0.0)  
-                          
+                      
                     valor_pago = float(aluno.get("valor_pago") or 0.0)  
                     saldo_devedor = valor_devido - valor_pago  
                       
