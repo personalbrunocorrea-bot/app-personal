@@ -662,3 +662,37 @@ else:
                 df_exibicao["Saldo Pendente"] = df_exibicao["Saldo Pendente"].apply(lambda x: f"R$ {x:.2f}")  
                   
                 st.dataframe(df_exibicao, use_container_width=True)
+def aplicar_estilo_customizado():
+    st.markdown("""
+        <style>
+        /* Estilização dos textos das métricas/cards */
+        [data-testid="stMetricValue"] {
+            font-size: 22px !important;
+            font-weight: bold;
+            color: #2ECC71 !important;
+        }
+        
+        /* Arredondamento e efeito hover nos botões */
+        .stButton>button {
+            border-radius: 10px !important;
+            font-weight: 600 !important;
+            transition: all 0.2s ease-in-out;
+        }
+        .stButton>button:hover {
+            transform: scale(1.02);
+        }
+
+        /* Suavizar bordas das caixas/containers com border=True */
+        [data-testid="stVerticalBlockBorderWrapper"] {
+            border-radius: 12px !important;
+        }
+
+        /* Linha sutil para separar a barra lateral */
+        section[data-testid="stSidebar"] {
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+# Insira a chamada da função no início da execução
+aplicar_estilo_customizado()
