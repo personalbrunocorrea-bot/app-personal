@@ -321,7 +321,7 @@ else:
 
             st.caption(f"📅 Dia de Vencimento do Pagamento: Todo dia **{aluno['vencimento']}**")
             
-            with st.expansander("💰 Registrar Novo Pagamento"):
+            with st.expander("💰 Registrar Novo Pagamento"):
                 with st.form(f"form_pag_{aluno['id']}"):
                     v_pago = st.number_input("Valor Recebido (R$)", min_value=0.0, step=10.0, value=float(max(0.0, saldo_pendente)))
                     if st.form_submit_button("Confirmar Recebimento"):
