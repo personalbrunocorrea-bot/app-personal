@@ -61,7 +61,7 @@ else:
 
     # 1. CADASTRO DE ALUNOS
     # No formulário de cadastro de aluno:
-if st.form_submit_button("Salvar Aluno") and nome:
+    if st.form_submit_button("Salvar Aluno") and nome:
     tipo = "pacote" if tipo_cobranca == "Pacote de Aulas" else "avulso"
     try:
         supabase.table("alunos").insert({
