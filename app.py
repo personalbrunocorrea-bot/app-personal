@@ -59,27 +59,45 @@ else:
         res = supabase.table("alunos").select("*").eq("user_id", user_id).execute()
         return res.data
 
-    # 1. CADASTRO DE ALUNOS
-    # No formulário de cadastro de aluno:
-    if st.form_submit_button("Salvar Aluno") and nome:
-    tipo = "pacote" if tipo_cobranca == "Pacote de Aulas" else "avulso"
-    try:
-        supabase.table("alunos").insert({
-            "user_id": user_id,
-            "nome": nome,
-            "tipo_cobranca": tipo,
-            "valor_aula": float(valor_aula) if tipo == "avulso" else 0.0,
-            "valor_pacote": float(valor_pacote) if tipo == "pacote" else 0.0,
-            "total_aulas_pacote": int(total_aulas_pacote) if tipo == "pacote" else 0,
-            "aulas_restantes": int(total_aulas_pacote) if tipo == "pacote" else 0,
-            "vencimento": int(vencimento),
-            "presencas": 0,
-            "faltas": 0,
-            "valor_pago": 0.0
-        }).execute()
-        st.success(f"Aluno {nome} cadastrado com sucesso!")
-    except Exception as e:
-        st.error(f"Detalhes do erro: {e}")
+   # 1. CADASTRO DE ALUNOS
+    if menu == "Cadastrar Aluno":
+        st.header("Cadastrar Novo Aluno")
+        with st.form("form_cadastro"):
+            nome = st.text_input("Nome do Aluno")
+            tipo_cobranca = st.selectbox("Tipo de Cobrança", ["Aula Avulsa", "Pacote de Aulas"])
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                valor_aula = st.number_input("Valor p/ Aula (R$)", min_value=0.0, value=80.0, disabled=(tipo_cobranca == "Pacote de Aulas"))
+                valor_pacote = st.number_input("Valor do Pacote (R$)", min_value=0.0, value=600.0, disabled=(tipo_cobranca == "Aula Avulsa"))
+            with c2:
+                total_aulas_pacote = st.number_input("Qtd de Aulas no Pacote", min_value=1, value=10, disabled=(tipo_cobranca == "Aula Avulsa"))
+                vencimento = st.number_input("Dia do Vencimento", min_value=1, max_value=31, value=10)
+                
+            btn_salvar = st.form_submit_button("Salvar Aluno")
+            
+            if btn_salvar:
+                if not nome:
+                    st.warning("Por favor, preencha o nome do aluno.")
+                else:
+                    tipo = "pacote" if tipo_cobranca == "Pacote de Aulas" else "avulso"
+                    try:
+                        supabase.table("alunos").insert({
+                            "user_id": user_id,
+                            "nome": nome,
+                            "tipo_cobranca": tipo,
+                            "valor_aula": float(valor_aula) if tipo == "avulso" else 0.0,
+                            "valor_pacote": float(valor_pacote) if tipo == "pacote" else 0.0,
+                            "total_aulas_pacote": int(total_aulas_pacote) if tipo == "pacote" else 0,
+                            "aulas_restantes": int(total_aulas_pacote) if tipo == "pacote" else 0,
+                            "vencimento": int(vencimento),
+                            "presencas": 0,
+                            "faltas": 0,
+                            "valor_pago": 0.0
+                        }).execute()
+                        st.success(f"Aluno {nome} cadastrado com sucesso!")
+                    except Exception as e:
+                        st.error(f"Erro no banco de dados: {e}")
 
     # 2. CALENDÁRIO / AGENDA DE ROTINA
     elif menu == "Calendário / Agenda":
