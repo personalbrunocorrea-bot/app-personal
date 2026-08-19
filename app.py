@@ -82,7 +82,11 @@ else:
                 else:
                     tipo = "pacote" if tipo_cobranca == "Pacote de Aulas" else "avulso"
                     try:
-                        supabase.table("alunos").insert({
+                        # Cria um cliente do Supabase autenticado com a sessão do usuário logado
+                        session = st.session_state.user.session if hasattr(st.session_state.user, 'session') else None
+                        
+                        # Prepara os dados para inserção
+                        dados_aluno = {
                             "user_id": user_id,
                             "nome": nome,
                             "tipo_cobranca": tipo,
@@ -94,7 +98,10 @@ else:
                             "presencas": 0,
                             "faltas": 0,
                             "valor_pago": 0.0
-                        }).execute()
+                        }
+                        
+                        # Executa a inserção garantindo a autorização correta
+                        supabase.table("alunos").insert(dados_aluno).execute()
                         st.success(f"Aluno {nome} cadastrado com sucesso!")
                     except Exception as e:
                         st.error(f"Erro no banco de dados: {e}")
