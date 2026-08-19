@@ -64,7 +64,12 @@ else:
         st.rerun()
         
     st.sidebar.divider()
-    menu = st.sidebar.radio("Navegação", ["Agenda (Com Check-in)", "Cadastrar Aluno", "Painel Financeiro / Extrato"])
+    menu = st.sidebar.radio("Navegação", [
+        "Agenda (Com Check-in)", 
+        "👤 Perfil do Aluno (Frequência e Financeiro)", 
+        "Cadastrar Aluno", 
+        "Painel Financeiro Geral"
+    ])
 
     def carregar_alunos():
         preparar_cliente()
@@ -87,7 +92,6 @@ else:
                 valor_aula = st.number_input("Valor por Aula Avulsa (R$)", min_value=0.0, value=80.0, disabled=is_pacote)
                 valor_pacote = st.number_input("Valor Total do Pacote (R$)", min_value=0.0, value=600.0, disabled=not is_pacote)
             with c2:
-                # CORREÇÃO: Liberado quando for Pacote
                 total_aulas_pacote = st.number_input("Quantidade de Aulas no Pacote", min_value=1, value=10, step=1, disabled=not is_pacote)
                 vencimento = st.number_input("Dia do Vencimento do Pagamento", min_value=1, max_value=31, value=10)
                 
@@ -116,12 +120,12 @@ else:
                             "valor_pago": 0.0
                         }
                         supabase.table("alunos").insert(dados).execute()
-                        st.success(f"Aluno {nome} cadastrado com sucesso com {qtd_aulas} aulas no pacote!")
+                        st.success(f"Aluno {nome} cadastrado com sucesso!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao salvar no banco de dados: {e}")
 
-    # 2. AGENDA - COM CHECK-IN INTEGRADO (PRESENÇA / FALTA COBRADA / FALTA NÃO COBRADA)
+    # 2. AGENDA - COM CHECK-IN INTEGRADO
     elif menu == "Agenda (Com Check-in)":
         st.header("📅 Agenda Visual & Registro de Presença")
         
@@ -192,7 +196,6 @@ else:
                     if aluno_data:
                         st.caption(f"📊 Restantes no Pacote: **{aluno_data.get('aulas_restantes', 0)}** | Presenças: {aluno_data.get('presencas', 0)} | Faltas: {aluno_data.get('faltas', 0)}")
 
-                    # Linha de Ações de Check-in na própria agenda
                     c_pres, c_falta_cob, c_falta_isenta, c_wsp, c_del = st.columns([1.2, 1.2, 1.3, 1, 0.8])
                     
                     with c_pres:
@@ -223,7 +226,7 @@ else:
                         if st.button("🟡 F. Isenta", key=f"fise_{info['id']}", use_container_width=True):
                             preparar_cliente()
                             supabase.table("agendamentos").update({"status": "falta_isenta"}).eq("id", info["id"]).execute()
-                            st.info("Falta desconsiderada (pacote mantido)!")
+                            st.info("Falta desconsiderada!")
                             st.rerun()
 
                     with c_wsp:
@@ -244,30 +247,134 @@ else:
                 else:
                     st.write(f"⏱️ `{hora_label}` — *Livre*")
 
-    # 3. PAINEL FINANCEIRO & PAGAMENTOS
-    elif menu == "Painel Financeiro / Extrato":
-        st.header("📊 Painel Financeiro e Controle de Pagamentos")
+    # 3. PERFIL DO ALUNO (SÓ FREQUÊNCIA E VALORES/FINANCEIRO)
+    elif menu == "👤 Perfil do Aluno (Frequência e Financeiro)":
+        st.header("👤 Perfil Individual do Aluno")
         alunos = carregar_alunos()
         
-        if alunos:
+        if not alunos:
+            st.warning("Nenhum aluno cadastrado.")
+        else:
             mapa_alunos = {a["nome"]: a for a in alunos}
-            aluno_sel = st.selectbox("Selecione o Aluno para Ajuste de Pagamento", list(mapa_alunos.keys()))
+            aluno_sel = st.selectbox("Selecione o Aluno", list(mapa_alunos.keys()))
             aluno = mapa_alunos[aluno_sel]
+            
+            st.divider()
+            
+            # BLOCO 1: MONITORAMENTO DE AULAS E FREQUÊNCIA
+            st.subheader("1️⃣ Monitoramento de Aulas e Frequência")
+            
+            c_freq1, c_freq2, c_freq3, c_freq4 = st.columns(4)
+            c_freq1.metric("Presenças Confirmadas", aluno["presencas"])
+            c_freq2.metric("Faltas Cobradas", aluno["faltas"])
+            
+            if aluno["tipo_cobranca"] == "pacote":
+                c_freq3.metric("Aulas Restantes no Pacote", f"{aluno['aulas_restantes']} / {aluno['total_aulas_pacote']}")
+                with c_freq4:
+                    st.write("")
+                    if st.button("🔄 Renovar Pacote", use_container_width=True):
+                        preparar_cliente()
+                        novas_restantes = aluno["aulas_restantes"] + aluno["total_aulas_pacote"]
+                        supabase.table("alunos").update({"aulas_restantes": novas_restantes}).eq("id", aluno["id"]).execute()
+                        st.success(f"Pacote renovado com +{aluno['total_aulas_pacote']} aulas!")
+                        st.rerun()
+            else:
+                aulas_computadas = aluno["presencas"] + aluno["faltas"]
+                c_freq3.metric("Total de Aulas Realizadas", aulas_computadas)
+                c_freq4.caption("Modalidade: Aula Avulsa")
+
+            # Histórico de Aulas da Agenda
+            preparar_cliente()
+            res_ag = supabase.table("agendamentos").select("*").eq("aluno_id", aluno["id"]).execute()
+            historico_aulas = res_ag.data or []
+            
+            st.markdown("##### 📜 Histórico de Aulas Agendadas")
+            if historico_aulas:
+                lista_hist = []
+                for h in historico_aulas:
+                    dt = datetime.fromisoformat(h["data_hora"])
+                    lista_hist.append({
+                        "Data": dt.strftime("%d/%m/%Y"),
+                        "Horário": dt.strftime("%H:%M"),
+                        "Status": h.get("status", "agendado").upper()
+                    })
+                df_hist = pd.DataFrame(lista_hist).sort_values(by=["Data", "Horário"], ascending=False)
+                st.dataframe(df_hist, use_container_width=True)
+            else:
+                st.info("Nenhuma aula registrada para este aluno na agenda.")
+
+            st.divider()
+
+            # BLOCO 2: CONTROLE FINANCEIRO E VALORES
+            st.subheader("2️⃣ Controle Financeiro e Valores")
             
             aulas_computadas = aluno["presencas"] + aluno["faltas"]
             total_devido = float(aluno["valor_pacote"]) if aluno["tipo_cobranca"] == "pacote" else (aulas_computadas * float(aluno["valor_aula"]))
-            saldo_pendente = total_devido - float(aluno["valor_pago"])
+            valor_pago = float(aluno["valor_pago"])
+            saldo_pendente = total_devido - valor_pago
             
-            f1, f2, f3 = st.columns(3)
-            f1.metric("Aulas Restantes no Pacote", aluno["aulas_restantes"])
+            f1, f2, f3, f4 = st.columns(4)
+            f1.metric("Tipo de Plano", "Pacote" if aluno["tipo_cobranca"] == "pacote" else "Avulso")
             f2.metric("Total Devido", f"R$ {total_devido:.2f}")
-            f3.metric("Saldo Pendente", f"R$ {max(0.0, saldo_pendente):.2f}")
+            f3.metric("Valor Já Pago", f"R$ {valor_pago:.2f}")
+            f4.metric("Saldo Pendente", f"R$ {max(0.0, saldo_pendente):.2f}", delta_color="inverse")
+
+            st.caption(f"📅 Dia de Vencimento do Pagamento: Todo dia **{aluno['vencimento']}**")
             
-            with st.form("form_pagamento"):
-                v_pago = st.number_input("Registrar Pagamento Recebido (R$)", min_value=0.0, step=10.0, value=float(max(0.0, saldo_pendente)))
-                if st.form_submit_button("💰 Confirmar Pagamento"):
-                    preparar_cliente()
-                    novo_total = float(aluno["valor_pago"]) + v_pago
-                    supabase.table("alunos").update({"valor_pago": novo_total}).eq("id", aluno["id"]).execute()
-                    st.success("Pagamento salvo!")
-                    st.rerun()
+            with st.expansander("💰 Registrar Novo Pagamento"):
+                with st.form(f"form_pag_{aluno['id']}"):
+                    v_pago = st.number_input("Valor Recebido (R$)", min_value=0.0, step=10.0, value=float(max(0.0, saldo_pendente)))
+                    if st.form_submit_button("Confirmar Recebimento"):
+                        preparar_cliente()
+                        novo_pago = valor_pago + v_pago
+                        supabase.table("alunos").update({"valor_pago": novo_pago}).eq("id", aluno["id"]).execute()
+                        st.success("Pagamento registrado!")
+                        st.rerun()
+
+    # 4. PAINEL FINANCEIRO GERAL
+    elif menu == "Painel Financeiro Geral":
+        st.header("📊 Painel Financeiro Geral")
+        alunos = carregar_alunos()
+        
+        if alunos:
+            dados_fin = []
+            total_recebido = 0.0
+            total_pendente = 0.0
+            
+            for d in alunos:
+                aulas_computadas = d["presencas"] + d["faltas"]
+                devido = float(d["valor_pacote"]) if d["tipo_cobranca"] == "pacote" else (aulas_computadas * float(d["valor_aula"]))
+                pago = float(d["valor_pago"])
+                saldo = devido - pago
+                
+                total_recebido += pago
+                total_pendente += max(0.0, saldo)
+                
+                dados_fin.append({
+                    "Aluno": d["nome"],
+                    "Tipo": "Pacote" if d["tipo_cobranca"] == "pacote" else "Avulso",
+                    "Presenças": d["presencas"],
+                    "Faltas": d["faltas"],
+                    "Total Devido": devido,
+                    "Valor Pago": pago,
+                    "Saldo Pendente": max(0.0, saldo)
+                })
+            
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Total Recebido", f"R$ {total_recebido:.2f}")
+            m2.metric("Total Pendente", f"R$ {total_pendente:.2f}")
+            m3.metric("Faturamento Esperado", f"R$ {(total_recebido + total_pendente):.2f}")
+            
+            st.divider()
+            
+            df_fin = pd.DataFrame(dados_fin)
+            st.subheader("Faturamento por Aluno (Pago vs Pendente)")
+            st.bar_chart(df_fin, x="Aluno", y=["Valor Pago", "Saldo Pendente"], color=["#2ECC71", "#E74C3C"])
+            
+            st.subheader("Tabela Detalhada")
+            df_exibicao = df_fin.copy()
+            df_exibicao["Total Devido"] = df_exibicao["Total Devido"].apply(lambda x: f"R$ {x:.2f}")
+            df_exibicao["Valor Pago"] = df_exibicao["Valor Pago"].apply(lambda x: f"R$ {x:.2f}")
+            df_exibicao["Saldo Pendente"] = df_exibicao["Saldo Pendente"].apply(lambda x: f"R$ {x:.2f}")
+            
+            st.dataframe(df_exibicao, use_container_width=True)
