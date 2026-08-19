@@ -114,8 +114,8 @@ else:
                 "nav-link-selected": {"background-color": "#262730", "font-weight": "bold"},
             }
         )
-  
-   # ==========================================  
+
+    # ==========================================  
     # 📌 CARDS DE ALERTAS INTELIGENTES EM DESTAQUE
     # ==========================================  
     hoje_dia = date.today().day  
@@ -148,10 +148,11 @@ else:
                     st.markdown("### 🚨 Pagamentos Atrasados")  
                     for item in alertas_financeiros:
                         st.markdown(f"• {item}")
-        st.divider()anceiros]))  
-  
+        st.divider()
+
     # 1. CADASTRO DE ALUNOS  
     if menu == "Cadastrar Aluno":  
+        # ... (seu código de cadastrar aluno continua aqui normalmente)  
         st.header("Cadastrar Novo Aluno")  
           
         tipo_cobranca = st.radio("Selecione o Tipo de Plano", ["Pacote de Aulas", "Aula Avulsa"], horizontal=True)  
