@@ -82,10 +82,11 @@ else:
                 else:
                     tipo = "pacote" if tipo_cobranca == "Pacote de Aulas" else "avulso"
                     try:
-                        # Cria um cliente do Supabase autenticado com a sessão do usuário logado
-                        session = st.session_state.user.session if hasattr(st.session_state.user, 'session') else None
+                        # Anexa os cabeçalhos de autenticação da sessão ativa
+                        if hasattr(st.session_state, "session") and st.session_state.session:
+                            access_token = st.session_state.session.access_token
+                            supabase.postgrest.auth(access_token)
                         
-                        # Prepara os dados para inserção
                         dados_aluno = {
                             "user_id": user_id,
                             "nome": nome,
@@ -100,7 +101,6 @@ else:
                             "valor_pago": 0.0
                         }
                         
-                        # Executa a inserção garantindo a autorização correta
                         supabase.table("alunos").insert(dados_aluno).execute()
                         st.success(f"Aluno {nome} cadastrado com sucesso!")
                     except Exception as e:
