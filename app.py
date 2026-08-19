@@ -388,11 +388,15 @@ else:
                             st.markdown(f"👤 **{item['aluno_nome']}**")  
                         with c_m2:  
                             status_tag = "🔵 AGENDADO"  
-                            if item["status"] == "realizada": status_tag = "✅ REALIZADA"  
-                            elif item["status"] == "falta_cobrada": status_tag = "❌ FALTA COBRADA"  
-                            st.write(f"Status: **{status_tag}**")  
-                            if aluno_data:  
-                                st.caption(f"Aulas restantes: {aluno_data.get('aulas_restantes', 0)}")  
+                           # Substitua a linha antiga de status por estas badges em HTML
+if item["status"] == "realizada":
+    status_tag = '<span style="background-color: #2ECC71; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 12px;">✅ REALIZADA</span>'
+elif item["status"] == "falta_cobrada":
+    status_tag = '<span style="background-color: #E74C3C; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 12px;">❌ FALTA COBRADA</span>'
+else:
+    status_tag = '<span style="background-color: #3498DB; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 12px;">🔵 AGENDADO</span>'
+
+st.markdown(f"Status: {status_tag}", unsafe_allow_html=True)  
                         with c_m3:  
                             ca1, ca2, ca3 = st.columns(3)  
                             if ca1.button("✅ Presença", key=f"mp_{item['id']}", use_container_width=True):  
