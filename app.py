@@ -69,7 +69,7 @@ else:
     def carregar_alunos():
         preparar_cliente()
         res = supabase.table("alunos").select("*").eq("user_id", user_id).execute()
-        return res.data
+        return res.data or []
 
     # 1. CADASTRO DE ALUNOS
     if menu == "Cadastrar Aluno":
@@ -115,21 +115,22 @@ else:
                     except Exception as e:
                         st.error(f"Erro ao salvar no banco de dados: {e}")
 
-    # 2. AGENDA - COM LEMBRETE WHATSAPP E CANCELAMENTO
+    # 2. AGENDA
     elif menu == "Agenda (Estilo Google Agenda)":
         st.header("📅 Agenda Visual do Professor")
         
         col_esq, col_dir = st.columns([1, 2])
         alunos = carregar_alunos()
+        mapa_alunos_id = {a["id"]: a for a in alunos}
         
         with col_esq:
             st.subheader("Agendar Nova Aula")
             if not alunos:
                 st.warning("Cadastre um aluno primeiro.")
             else:
-                mapa_alunos = {a["nome"]: a for a in alunos}
+                mapa_alunos_nome = {a["nome"]: a for a in alunos}
                 with st.form("form_agendar"):
-                    aluno_sel = st.selectbox("Aluno", list(mapa_alunos.keys()))
+                    aluno_sel = st.selectbox("Aluno", list(mapa_alunos_nome.keys()))
                     data_aula = st.date_input("Data", value=date.today())
                     hora_aula = st.time_input("Horário", value=time(8, 0))
                     
@@ -138,7 +139,7 @@ else:
                         dt_completa = datetime.combine(data_aula, hora_aula).isoformat()
                         supabase.table("agendamentos").insert({
                             "user_id": user_id,
-                            "aluno_id": mapa_alunos[aluno_sel]["id"],
+                            "aluno_id": mapa_alunos_nome[aluno_sel]["id"],
                             "data_hora": dt_completa,
                             "status": "agendado"
                         }).execute()
@@ -150,23 +151,29 @@ else:
             data_filtro = st.date_input("Selecionar Dia para Visualizar", value=date.today())
             
             preparar_cliente()
-            res_agenda = supabase.table("agendamentos").select("*, alunos(nome, telefone)").eq("user_id", user_id).execute()
             
+            # Busca agendamentos simples com fallback local para evitar erros de JOIN
+            try:
+                res_agenda = supabase.table("agendamentos").select("*").eq("user_id", user_id).execute()
+                dados_agenda = res_agenda.data or []
+            except Exception as e:
+                st.error(f"Erro ao carregar agenda: {e}")
+                dados_agenda = []
+
             agendamentos_dia = {}
-            if res_agenda.data:
-                for item in res_agenda.data:
-                    dt = datetime.fromisoformat(item["data_hora"])
-                    if dt.date() == data_filtro:
-                        aluno_info = item.get("alunos") or {}
-                        agendamentos_dia[dt.hour] = {
-                            "id": item["id"],
-                            "aluno": aluno_info.get("nome", "Desconhecido"),
-                            "telefone": aluno_info.get("telefone", ""),
-                            "minuto": dt.strftime("%M"),
-                            "status": item.get("status", "agendado"),
-                            "data_str": dt.strftime("%d/%m/%Y"),
-                            "hora_str": dt.strftime("%H:%M")
-                        }
+            for item in dados_agenda:
+                dt = datetime.fromisoformat(item["data_hora"])
+                if dt.date() == data_filtro:
+                    aluno_obj = mapa_alunos_id.get(item["aluno_id"], {})
+                    agendamentos_dia[dt.hour] = {
+                        "id": item["id"],
+                        "aluno": aluno_obj.get("nome", "Aluno Indefinido"),
+                        "telefone": aluno_obj.get("telefone", ""),
+                        "minuto": dt.strftime("%M"),
+                        "status": item.get("status", "agendado"),
+                        "data_str": dt.strftime("%d/%m/%Y"),
+                        "hora_str": dt.strftime("%H:%M")
+                    }
 
             for h in range(6, 23):
                 hora_label = f"{h:02d}:00"
@@ -192,7 +199,7 @@ else:
                 else:
                     st.write(f"⏱️ `{hora_label}` — *Livre*")
 
-    # 3. CHECK-IN DIÁRIO (PRESENÇA, FALTA E AJUSTE DE AULAS/PAGAMENTOS)
+    # 3. CHECK-IN DIÁRIO
     elif menu == "Check-in Diário":
         st.header("Apontamento Diário, Ajuste de Aulas e Pagamentos")
         alunos = carregar_alunos()
@@ -276,7 +283,7 @@ else:
                     st.success("Pagamento registrado!")
                     st.rerun()
 
-    # 4. PAINEL FINANCEIRO COM GRÁFICOS
+    # 4. PAINEL FINANCEIRO
     elif menu == "Painel Financeiro":
         st.header("📊 Resumo Financeiro e Faturamento")
         alunos = carregar_alunos()
@@ -305,7 +312,6 @@ else:
                     "Saldo Pendente": max(0.0, saldo)
                 })
             
-            # Métricas
             m1, m2, m3 = st.columns(3)
             m1.metric("Total Recebido", f"R$ {total_recebido:.2f}")
             m2.metric("Total Pendente", f"R$ {total_pendente:.2f}")
@@ -313,7 +319,6 @@ else:
             
             st.divider()
             
-            # Gráficos
             df_fin = pd.DataFrame(dados_fin)
             st.subheader("Faturamento por Aluno (Pago vs Pendente)")
             st.bar_chart(df_fin, x="Aluno", y=["Valor Pago", "Saldo Pendente"], color=["#2ECC71", "#E74C3C"])
