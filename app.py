@@ -25,6 +25,23 @@ def carregar_alunos(user_id):
     preparar_cliente()  
     res = supabase.table("alunos").select("*").eq("user_id", user_id).execute()  
     return res.data or []  
+
+def desfazer_computo_aula(aluno_data, status_atual):
+    """Estorna presenças, faltas e devolução de aulas no pacote ao excluir um treino computado."""
+    if not aluno_data or status_atual not in ["realizada", "falta_cobrada"]:
+        return
+    
+    upd = {}
+    if status_atual == "realizada":
+        upd["presencas"] = max(0, (aluno_data.get("presencas") or 0) - 1)
+    elif status_atual == "falta_cobrada":
+        upd["faltas"] = max(0, (aluno_data.get("faltas") or 0) - 1)
+        
+    if aluno_data.get("tipo_cobranca") == "pacote":
+        upd["aulas_restantes"] = (aluno_data.get("aulas_restantes") or 0) + 1
+        
+    if upd:
+        supabase.table("alunos").update(upd).eq("id", aluno_data["id"]).execute()
   
 # --- LOGIN / CADASTRO ---  
 if st.session_state.user is None:  
@@ -336,6 +353,7 @@ else:
   
                             if ca3.button("🗑️", key=f"mdel_{item['id']}", use_container_width=True):  
                                 preparar_cliente()  
+                                desfazer_computo_aula(aluno_data, item["status"])
                                 supabase.table("agendamentos").delete().eq("id", item["id"]).execute()  
                                 st.rerun()  
   
@@ -415,6 +433,7 @@ else:
   
                                     if st.button("🗑️ Excluir", key=f"del_{item['id']}", use_container_width=True, type="primary"):  
                                         preparar_cliente()  
+                                        desfazer_computo_aula(aluno_data, item["status"])
                                         supabase.table("agendamentos").delete().eq("id", item["id"]).execute()  
                                         st.rerun()  
   
