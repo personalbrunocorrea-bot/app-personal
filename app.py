@@ -258,9 +258,10 @@ else:
                                 preparar_cliente()
                                 supabase.table("agendamentos").update({"status": "realizada"}).eq("id", item["id"]).execute()
                                 if aluno_data:
-                                    upd = {"presencas": aluno_data["presencas"] + 1}
-                                    if aluno_data["tipo_cobranca"] == "pacote" and aluno_data["aulas_restantes"] > 0:
-                                        upd["aulas_restantes"] = aluno_data["aulas_restantes"] - 1
+                                    upd = {"presencas": (aluno_data.get("presencas") or 0) + 1}
+                                    restantes = aluno_data.get("aulas_restantes") or 0
+                                    if aluno_data.get("tipo_cobranca") == "pacote" and restantes > 0:
+                                        upd["aulas_restantes"] = restantes - 1
                                     supabase.table("alunos").update(upd).eq("id", aluno_data["id"]).execute()
                                 st.rerun()
 
@@ -268,9 +269,10 @@ else:
                                 preparar_cliente()
                                 supabase.table("agendamentos").update({"status": "falta_cobrada"}).eq("id", item["id"]).execute()
                                 if aluno_data:
-                                    upd = {"faltas": aluno_data["faltas"] + 1}
-                                    if aluno_data["tipo_cobranca"] == "pacote" and aluno_data["aulas_restantes"] > 0:
-                                        upd["aulas_restantes"] = aluno_data["aulas_restantes"] - 1
+                                    upd = {"faltas": (aluno_data.get("faltas") or 0) + 1}
+                                    restantes = aluno_data.get("aulas_restantes") or 0
+                                    if aluno_data.get("tipo_cobranca") == "pacote" and restantes > 0:
+                                        upd["aulas_restantes"] = restantes - 1
                                     supabase.table("alunos").update(upd).eq("id", aluno_data["id"]).execute()
                                 st.rerun()
 
@@ -309,21 +311,21 @@ else:
             st.subheader("1️⃣ Frequência & Resumo do Plano")
             
             c_freq1, c_freq2, c_freq3, c_freq4 = st.columns(4)
-            c_freq1.metric("Presenças Confirmadas", aluno["presencas"])
-            c_freq2.metric("Faltas Cobradas", aluno["faltas"])
+            c_freq1.metric("Presenças Confirmadas", aluno.get("presencas", 0))
+            c_freq2.metric("Faltas Cobradas", aluno.get("faltas", 0))
             
-            if aluno["tipo_cobranca"] == "pacote":
-                c_freq3.metric("Aulas Restantes", f"{aluno['aulas_restantes']} / {aluno['total_aulas_pacote']}")
+            if aluno.get("tipo_cobranca") == "pacote":
+                c_freq3.metric("Aulas Restantes", f"{aluno.get('aulas_restantes', 0)} / {aluno.get('total_aulas_pacote', 0)}")
                 with c_freq4:
                     st.write("")
                     if st.button("🔄 Renovar Pacote", use_container_width=True):
                         preparar_cliente()
-                        novas_restantes = aluno["aulas_restantes"] + aluno["total_aulas_pacote"]
+                        novas_restantes = (aluno.get("aulas_restantes") or 0) + (aluno.get("total_aulas_pacote") or 0)
                         supabase.table("alunos").update({"aulas_restantes": novas_restantes}).eq("id", aluno["id"]).execute()
-                        st.success(f"Pacote renovado com +{aluno['total_aulas_pacote']} aulas!")
+                        st.success(f"Pacote renovado com +{aluno.get('total_aulas_pacote', 0)} aulas!")
                         st.rerun()
             else:
-                aulas_computadas = aluno["presencas"] + aluno["faltas"]
+                aulas_computadas = (aluno.get("presencas") or 0) + (aluno.get("faltas") or 0)
                 c_freq3.metric("Total Aulas Realizadas", aulas_computadas)
                 c_freq4.caption("Modalidade: Aula Avulsa")
 
@@ -385,23 +387,23 @@ else:
 
             st.divider()
 
-            # BLOCO 2: EDIÇÃO LIVRE DOS CAMPOS DO ALUNO
+            # BLOCO 2: EDIÇÃO LIVRE DOS CAMPOS DO ALUNO (COM CORREÇÃO DE MIN_VALUE)
             with st.expander("🛠️ Ajustar Valores e Números do Aluno Manualmente (Liberdade Total)"):
                 st.caption("Altere qualquer valor abaixo diretamente e salve para ajustar inconsistências ou dar descontos/créditos.")
                 with st.form(f"form_edicao_aluno_{aluno['id']}"):
                     c_ed1, c_ed2, c_ed3 = st.columns(3)
                     with c_ed1:
-                        novo_nome = st.text_input("Nome do Aluno", value=aluno["nome"])
+                        novo_nome = st.text_input("Nome do Aluno", value=aluno.get("nome", ""))
                         novo_tel = st.text_input("Telefone (WhatsApp)", value=aluno.get("telefone", ""))
-                        novo_venc = st.number_input("Dia Vencimento", min_value=1, max_value=31, value=int(aluno.get("vencimento", 10)))
+                        novo_venc = st.number_input("Dia Vencimento", min_value=1, max_value=31, value=max(1, min(31, int(aluno.get("vencimento") or 10))))
                     with c_ed2:
-                        novas_presencas = st.number_input("Presenças Contadas", min_value=0, value=int(aluno["presencas"]))
-                        novas_faltas = st.number_input("Faltas Cobradas", min_value=0, value=int(aluno["faltas"]))
-                        novas_restantes = st.number_input("Aulas Restantes (Se Pacote)", min_value=0, value=int(aluno.get("aulas_restantes", 0)))
+                        novas_presencas = st.number_input("Presenças Contadas", min_value=0, value=max(0, int(aluno.get("presencas") or 0)))
+                        novas_faltas = st.number_input("Faltas Cobradas", min_value=0, value=max(0, int(aluno.get("faltas") or 0)))
+                        novas_restantes = st.number_input("Aulas Restantes (Se Pacote)", min_value=0, value=max(0, int(aluno.get("aulas_restantes") or 0)))
                     with c_ed3:
-                        novo_val_aula = st.number_input("Valor por Aula Avulsa (R$)", min_value=0.0, value=float(aluno.get("valor_aula", 0.0)))
-                        novo_val_pacote = st.number_input("Valor Total Pacote (R$)", min_value=0.0, value=float(aluno.get("valor_pacote", 0.0)))
-                        novo_tot_pacote = st.number_input("Tamanho do Pacote (Aulas)", min_value=1, value=int(aluno.get("total_aulas_pacote", 10)))
+                        novo_val_aula = st.number_input("Valor por Aula Avulsa (R$)", min_value=0.0, value=max(0.0, float(aluno.get("valor_aula") or 0.0)))
+                        novo_val_pacote = st.number_input("Valor Total Pacote (R$)", min_value=0.0, value=max(0.0, float(aluno.get("valor_pacote") or 0.0)))
+                        novo_tot_pacote = st.number_input("Tamanho do Pacote (Aulas)", min_value=0, value=max(0, int(aluno.get("total_aulas_pacote") or 0)))
 
                     if st.form_submit_button("💾 Salvar Alterações do Perfil", use_container_width=True):
                         preparar_cliente()
@@ -425,18 +427,18 @@ else:
             # BLOCO 3: CONTROLE FINANCEIRO E PAGAMENTOS
             st.subheader("2️⃣ Controle Financeiro e Valores")
             
-            aulas_computadas = aluno["presencas"] + aluno["faltas"]
-            total_devido = float(aluno["valor_pacote"]) if aluno["tipo_cobranca"] == "pacote" else (aulas_computadas * float(aluno["valor_aula"]))
-            valor_pago = float(aluno["valor_pago"])
+            aulas_computadas = (aluno.get("presencas") or 0) + (aluno.get("faltas") or 0)
+            total_devido = float(aluno.get("valor_pacote") or 0.0) if aluno.get("tipo_cobranca") == "pacote" else (aulas_computadas * float(aluno.get("valor_aula") or 0.0))
+            valor_pago = float(aluno.get("valor_pago") or 0.0)
             saldo_pendente = total_devido - valor_pago
             
             f1, f2, f3, f4 = st.columns(4)
-            f1.metric("Tipo de Plano", "Pacote" if aluno["tipo_cobranca"] == "pacote" else "Avulso")
+            f1.metric("Tipo de Plano", "Pacote" if aluno.get("tipo_cobranca") == "pacote" else "Avulso")
             f2.metric("Total Devido", f"R$ {total_devido:.2f}")
             f3.metric("Valor Já Pago", f"R$ {valor_pago:.2f}")
             f4.metric("Saldo Pendente", f"R$ {max(0.0, saldo_pendente):.2f}", delta_color="inverse")
 
-            st.caption(f"📅 Dia de Vencimento do Pagamento: Todo dia **{aluno['vencimento']}**")
+            st.caption(f"📅 Dia de Vencimento do Pagamento: Todo dia **{aluno.get('vencimento', 10)}**")
             
             col_pag1, col_pag2 = st.columns(2)
             with col_pag1:
@@ -471,19 +473,19 @@ else:
             total_pendente = 0.0
             
             for d in alunos:
-                aulas_computadas = d["presencas"] + d["faltas"]
-                devido = float(d["valor_pacote"]) if d["tipo_cobranca"] == "pacote" else (aulas_computadas * float(d["valor_aula"]))
-                pago = float(d["valor_pago"])
+                aulas_computadas = (d.get("presencas") or 0) + (d.get("faltas") or 0)
+                devido = float(d.get("valor_pacote") or 0.0) if d.get("tipo_cobranca") == "pacote" else (aulas_computadas * float(d.get("valor_aula") or 0.0))
+                pago = float(d.get("valor_pago") or 0.0)
                 saldo = devido - pago
                 
                 total_recebido += pago
                 total_pendente += max(0.0, saldo)
                 
                 dados_fin.append({
-                    "Aluno": d["nome"],
-                    "Tipo": "Pacote" if d["tipo_cobranca"] == "pacote" else "Avulso",
-                    "Presenças": d["presencas"],
-                    "Faltas": d["faltas"],
+                    "Aluno": d.get("nome", "Sem nome"),
+                    "Tipo": "Pacote" if d.get("tipo_cobranca") == "pacote" else "Avulso",
+                    "Presenças": d.get("presencas", 0),
+                    "Faltas": d.get("faltas", 0),
                     "Total Devido": devido,
                     "Valor Pago": pago,
                     "Saldo Pendente": max(0.0, saldo)
