@@ -3,6 +3,7 @@ import pandas as pd
 import urllib.parse  
 from datetime import datetime, date, time, timedelta  
 from supabase import create_client, Client  
+from streamlit_option_menu import option_menu
   
 st.set_page_config(page_title="SaaS Personal Trainer", layout="wide")  
   
@@ -86,13 +87,31 @@ else:
         st.session_state.session = None  
         st.rerun()  
           
-    st.sidebar.divider()  
-    menu = st.sidebar.radio("Navegação", [  
-        "Agenda Semanal (Com Check-in)",   
-        "👤 Perfil do Aluno (Frequência e Financeiro)",   
-        "Cadastrar Aluno",   
-        "Painel Financeiro Geral"  
-    ])  
+    with st.sidebar:
+    menu = option_menu(
+        menu_title="Navegação",
+        options=[
+            "Agenda Semanal (Com Check-in)", 
+            "👤 Perfil do Aluno (Frequência e Financeiro)", 
+            "Cadastrar Aluno", 
+            "Painel Financeiro Geral"
+        ],
+        icons=["calendar-week", "person-badge", "person-plus", "bar-chart-line"],
+        menu_icon="ui-checks-grid",
+        default_index=0,
+        styles={
+            "container": {"padding": "0!important", "background-color": "transparent"},
+            "icon": {"color": "#2ECC71", "font-size": "16px"}, 
+            "nav-link": {
+                "font-size": "14px", 
+                "text-align": "left", 
+                "margin": "2px 0px", 
+                "border-radius": "8px",
+                "--hover-color": "#262730"
+            },
+            "nav-link-selected": {"background-color": "#262730", "font-weight": "bold"},
+        }
+    )
   
     # ==========================================  
     # 📌 CARDS DE ALERTAS INTELIGENTES NO TOPO  
