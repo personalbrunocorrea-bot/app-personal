@@ -115,16 +115,16 @@ else:
             }
         )
   
-    # ==========================================  
-    # 📌 CARDS DE ALERTAS INTELIGENTES NO TOPO  
+   # ==========================================  
+    # 📌 CARDS DE ALERTAS INTELIGENTES EM DESTAQUE
     # ==========================================  
     hoje_dia = date.today().day  
     alertas_pacotes = []  
     alertas_financeiros = []  
-  
+
     for al in alunos_todos:  
         if al.get("tipo_cobranca") == "pacote" and (al.get("aulas_restantes") or 0) <= 2:  
-            alertas_pacotes.append(f"**{al['nome']}** ({al.get('aulas_restantes', 0)} rest/ total: {al.get('total_aulas_pacote', 0)})")  
+            alertas_pacotes.append(f"**{al['nome']}** — {al.get('aulas_restantes', 0)} aula(s) restante(s)")  
           
         aulas_comp = (al.get("presencas") or 0) + (al.get("faltas") or 0)  
         devido = float(al.get("valor_pacote") or 0.0) if al.get("tipo_cobranca") == "pacote" else (aulas_comp * float(al.get("valor_aula") or 0.0))  
@@ -132,19 +132,23 @@ else:
         venc = int(al.get("vencimento") or 10)  
           
         if (devido - pago) > 0.5 and hoje_dia > venc:  
-            alertas_financeiros.append(f"**{al['nome']}** (Venceu dia {venc} | Pendente: R$ {(devido - pago):.2f})")  
-  
+            alertas_financeiros.append(f"**{al['nome']}** — Pendente: R$ {(devido - pago):.2f} (Venc.: dia {venc})")  
+
     if alertas_pacotes or alertas_financeiros:  
-        st.markdown("### 🔔 Central de Avisos Rápidos")  
         c_al1, c_al2 = st.columns(2)  
         with c_al1:  
             if alertas_pacotes:  
                 with st.container(border=True):  
-                    st.warning("⚠️ **Pacotes no fim (≤ 2 aulas):**\n\n" + "\n".join([f"• {a}" for a in alertas_pacotes]))  
+                    st.markdown("### ⚠️ Pacotes no Fim")  
+                    for item in alertas_pacotes:
+                        st.markdown(f"• {item}")
         with c_al2:  
             if alertas_financeiros:  
                 with st.container(border=True):  
-                    st.error("🚨 **Pagamentos Pendentes (Após Vencimento):**\n\n" + "\n".join([f"• {a}" for a in alertas_financeiros]))  
+                    st.markdown("### 🚨 Pagamentos Atrasados")  
+                    for item in alertas_financeiros:
+                        st.markdown(f"• {item}")
+        st.divider()anceiros]))  
   
     # 1. CADASTRO DE ALUNOS  
     if menu == "Cadastrar Aluno":  
