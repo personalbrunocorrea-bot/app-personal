@@ -144,6 +144,13 @@ else:
                 with c2:  
                     total_aulas_pacote = st.number_input("Quantidade de Aulas no Pacote", min_value=1, value=10, step=1, disabled=not is_pacote)  
                     vencimento = st.number_input("Dia do Vencimento do Pagamento", min_value=1, max_value=31, value=10)  
+                
+                st.subheader("📅 Horário Fixo Semanal (Opcional)")
+                col_h1, col_h2 = st.columns(2)
+                with col_h1:
+                    dias_fixos_sel = st.multiselect("Dias Fixos", ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"])
+                with col_h2:
+                    horario_fixo_sel = st.time_input("Horário Fixo de Treino", value=time(8, 0))
                       
                 btn_salvar = st.form_submit_button("Salvar Cadastramento do Aluno", use_container_width=True)  
                   
@@ -167,14 +174,16 @@ else:
                                 "vencimento": int(vencimento),  
                                 "presencas": 0,  
                                 "faltas": 0,  
-                                "valor_pago": 0.0  
+                                "valor_pago": 0.0,
+                                "dias_fixos": ",".join(dias_fixos_sel),
+                                "horario_fixo": horario_fixo_sel.strftime("%H:%M") if dias_fixos_sel else None
                             }  
                             supabase.table("alunos").insert(dados).execute()  
                             st.success(f"Aluno {nome} cadastrado com sucesso!")  
                             st.rerun()  
                         except Exception as e:  
                             st.error(f"Erro ao salvar no banco de dados: {e}")  
-  
+
     # 2. AGENDA SEMANAL COM CARDS INDIVIDUAIS  
     elif menu == "Agenda Semanal (Com Check-in)":  
         st.header("📅 Agenda de Treinos")  
@@ -208,7 +217,7 @@ else:
         alunos = alunos_todos  
         mapa_alunos_id = {a["id"]: a for a in alunos}  
           
-        tab_avulso, tab_recorrente = st.tabs(["📌 Agendar Aula Avulsa", "🔄 Gerar Horários Recorrentes (4 Semanas)"])  
+        tab_avulso, tab_recorrente, tab_gerar_fixos = st.tabs(["📌 Agendar Aula Avulsa", "🔄 Gerar Horários Recorrentes", "⚡ Preencher Semana via Horários Fixos"])  
           
         with tab_avulso:  
             if not alunos:  
@@ -272,7 +281,39 @@ else:
                             supabase.table("agendamentos").insert(novos_agendamentos).execute()  
                             st.success(f"{len(novos_agendamentos)} treinos criados com sucesso para {al_rec}!")  
                             st.rerun()  
-  
+
+        with tab_gerar_fixos:
+            st.caption("Cria automaticamente todas as aulas da semana visível com base nos dias e horários cadastrados na ficha de cada aluno.")
+            if st.button("⚡ Gerar Agenda Fixo da Semana Selecionada", use_container_width=True):
+                preparar_cliente()
+                mapa_dias = {"Segunda": 0, "Terça": 1, "Quarta": 2, "Quinta": 3, "Sexta": 4, "Sábado": 5, "Domingo": 6}
+                novos_agendamentos = []
+
+                for al in alunos:
+                    dias_f = al.get("dias_fixos")
+                    hora_f = al.get("horario_fixo")
+                    if dias_f and hora_f:
+                        lista_dias = [d.strip() for d in dias_f.split(",") if d.strip() in mapa_dias]
+                        dias_idx = [mapa_dias[d] for d in lista_dias]
+                        h_obj = datetime.strptime(hora_f, "%H:%M").time()
+
+                        for i in range(7):
+                            dt_dia = st.session_state.semana_inicio + timedelta(days=i)
+                            if dt_dia.weekday() in dias_idx:
+                                dt_comp = datetime.combine(dt_dia, h_obj).isoformat()
+                                novos_agendamentos.append({
+                                    "user_id": user_id,
+                                    "aluno_id": al["id"],
+                                    "data_hora": dt_comp,
+                                    "status": "agendado"
+                                })
+                if novos_agendamentos:
+                    supabase.table("agendamentos").insert(novos_agendamentos).execute()
+                    st.success(f"{len(novos_agendamentos)} aulas agendadas com base nos horários fixos!")
+                    st.rerun()
+                else:
+                    st.info("Nenhum aluno com dias e horários fixos cadastrados.")
+
         st.divider()  
   
         preparar_cliente()  
@@ -314,7 +355,6 @@ else:
             else:  
                 for item in agendamentos_dia:  
                     aluno_data = item["aluno_obj"]  
-                    # CARD DE AULA  
                     with st.container(border=True):  
                         c_m1, c_m2, c_m3 = st.columns([2, 2, 3])  
                         with c_m1:  
@@ -478,7 +518,11 @@ else:
                         aulas_computadas = (aluno.get("presencas") or 0) + (aluno.get("faltas") or 0)  
                         c_freq3.metric("Total Aulas Realizadas", aulas_computadas)  
                         c_freq4.caption("Modalidade: Aula Avulsa")  
-  
+
+                    d_fixos = aluno.get("dias_fixos") or "Não configurado"
+                    h_fixo = aluno.get("horario_fixo") or "Não configurado"
+                    st.caption(f"🗓️ **Dias Fixos:** {d_fixos} | ⏰ **Horário Fixo:** {h_fixo}")
+
                 st.divider()  
   
                 # CARD FINANCEIRO  
@@ -520,7 +564,7 @@ else:
                 st.divider()  
   
                 # CARD DE EDIÇÃO LIVRE  
-                with st.expander("🛠️ Ajustar Valores e Números do Aluno Manualmente"):  
+                with st.expander("🛠️ Ajustar Valores e Horários Fixos do Aluno"):  
                     with st.form(f"form_edicao_aluno_{aluno['id']}"):  
                         c_ed1, c_ed2, c_ed3 = st.columns(3)  
                         with c_ed1:  
@@ -535,7 +579,20 @@ else:
                             novo_val_aula = st.number_input("Valor por Aula Avulsa (R$)", min_value=0.0, value=max(0.0, float(aluno.get("valor_aula") or 0.0)))  
                             novo_val_pacote = st.number_input("Valor Total Pacote (R$)", min_value=0.0, value=max(0.0, float(aluno.get("valor_pacote") or 0.0)))  
                             novo_tot_pacote = st.number_input("Tamanho do Pacote (Aulas)", min_value=0, value=max(0, int(aluno.get("total_aulas_pacote") or 0)))  
-  
+                        
+                        st.divider()
+                        c_fix1, c_fix2 = st.columns(2)
+                        dias_atuais = [d.strip() for d in (aluno.get("dias_fixos") or "").split(",") if d.strip()]
+                        with c_fix1:
+                            novos_dias_fixos = st.multiselect("Dias Fixos", ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"], default=dias_atuais)
+                        with c_fix2:
+                            h_str = aluno.get("horario_fixo") or "08:00"
+                            try:
+                                h_val = datetime.strptime(h_str, "%H:%M").time()
+                            except ValueError:
+                                h_val = time(8, 0)
+                            novo_horario_fixo = st.time_input("Horário Fixo", value=h_val)
+
                         if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):  
                             preparar_cliente()  
                             dados_upd = {  
@@ -547,7 +604,9 @@ else:
                                 "aulas_restantes": int(novas_restantes),  
                                 "valor_aula": float(novo_val_aula),  
                                 "valor_pacote": float(novo_val_pacote),  
-                                "total_aulas_pacote": int(novo_tot_pacote)  
+                                "total_aulas_pacote": int(novo_tot_pacote),
+                                "dias_fixos": ",".join(novos_dias_fixos),
+                                "horario_fixo": novo_horario_fixo.strftime("%H:%M") if novos_dias_fixos else None
                             }  
                             supabase.table("alunos").update(dados_upd).eq("id", aluno["id"]).execute()  
                             st.success("Perfil atualizado!")  
