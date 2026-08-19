@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, time
 from supabase import create_client, Client
 
 st.set_page_config(page_title="SaaS Personal Trainer", layout="wide")
@@ -10,19 +10,18 @@ SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Gerenciamento de Sessão de Login
+# Gerenciamento de Sessao
 if "user" not in st.session_state:
     st.session_state.user = None
 if "session" not in st.session_state:
     st.session_state.session = None
 
-# Funcao auxiliar para anexar o token de autenticacao
 def preparar_cliente():
     if st.session_state.session:
         token = st.session_state.session.access_token
         supabase.postgrest.auth(token)
 
-# --- TELA DE LOGIN / CADASTRO ---
+# --- LOGIN / CADASTRO ---
 if st.session_state.user is None:
     st.title("🏋️ Painel do Personal Trainer - Login")
     aba_login, aba_cadastro = st.tabs(["Entrar", "Criar Conta"])
@@ -38,7 +37,7 @@ if st.session_state.user is None:
                     st.session_state.session = res.session
                     st.success("Login realizado com sucesso!")
                     st.rerun()
-                except Exception as e:
+                except Exception:
                     st.error("E-mail ou senha incorretos.")
                     
     with aba_cadastro:
@@ -65,7 +64,7 @@ else:
         st.rerun()
         
     st.sidebar.divider()
-    menu = st.sidebar.radio("Navegação", ["Calendário / Agenda", "Check-in Diário", "Cadastrar Aluno", "Painel Financeiro"])
+    menu = st.sidebar.radio("Navegação", ["Agenda (Estilo Google Agenda)", "Check-in Diário", "Cadastrar Aluno", "Painel Financeiro"])
 
     def carregar_alunos():
         preparar_cliente()
@@ -114,68 +113,97 @@ else:
                     except Exception as e:
                         st.error(f"Erro ao salvar no banco de dados: {e}")
 
-    # 2. CALENDÁRIO / AGENDA DE ROTINA
-    elif menu == "Calendário / Agenda":
-        st.header("📅 Agendamento de Aulas")
+    # 2. AGENDA - ESTILO GOOGLE AGENDA COM CANCELAMENTO
+    elif menu == "Agenda (Estilo Google Agenda)":
+        st.header("📅 Agenda Visual do Professor")
+        
+        col_esq, col_dir = st.columns([1, 2])
         alunos = carregar_alunos()
         
-        if not alunos:
-            st.warning("Cadastre um aluno primeiro.")
-        else:
-            mapa_alunos = {a["nome"]: a for a in alunos}
-            
-            with st.form("form_agendar"):
-                aluno_sel = st.selectbox("Aluno", list(mapa_alunos.keys()))
-                data_aula = st.date_input("Data", min_value=date.today())
-                hora_aula = st.time_input("Horário")
-                
-                if st.form_submit_button("Marcar na Agenda"):
-                    preparar_cliente()
-                    dt_completa = datetime.combine(data_aula, hora_aula).isoformat()
-                    supabase.table("agendamentos").insert({
-                        "user_id": user_id,
-                        "aluno_id": mapa_alunos[aluno_sel]["id"],
-                        "data_hora": dt_completa
-                    }).execute()
-                    st.success("Aula agendada!")
+        with col_esq:
+            st.subheader("Agendar Nova Aula")
+            if not alunos:
+                st.warning("Cadastre um aluno primeiro.")
+            else:
+                mapa_alunos = {a["nome"]: a for a in alunos}
+                with st.form("form_agendar"):
+                    aluno_sel = st.selectbox("Aluno", list(mapa_alunos.keys()))
+                    data_aula = st.date_input("Data", value=date.today())
+                    hora_aula = st.time_input("Horário", value=time(8, 0))
+                    
+                    if st.form_submit_button("Confirmar Agendamento", use_container_width=True):
+                        preparar_cliente()
+                        dt_completa = datetime.combine(data_aula, hora_aula).isoformat()
+                        supabase.table("agendamentos").insert({
+                            "user_id": user_id,
+                            "aluno_id": mapa_alunos[aluno_sel]["id"],
+                            "data_hora": dt_completa,
+                            "status": "agendado"
+                        }).execute()
+                        st.success("Aula agendada!")
+                        st.rerun()
 
-            st.divider()
-            st.subheader("Sua Agenda de Hoje e Próximos Dias")
+        with col_dir:
+            st.subheader("Grade Horária")
+            data_filtro = st.date_input("Selecionar Dia para Visualizar", value=date.today())
             
             preparar_cliente()
-            res_agenda = supabase.table("agendamentos").select("*, alunos(nome)").eq("user_id", user_id).order("data_hora").execute()
+            res_agenda = supabase.table("agendamentos").select("*, alunos(nome)").eq("user_id", user_id).execute()
+            
+            # Mapeamento de agendamentos por hora no dia selecionado
+            agendamentos_dia = {}
             if res_agenda.data:
-                agenda_df = []
                 for item in res_agenda.data:
                     dt = datetime.fromisoformat(item["data_hora"])
-                    agenda_df.append({
-                        "Data": dt.strftime("%d/%m/%Y"),
-                        "Horário": dt.strftime("%H:%M"),
-                        "Aluno": item["alunos"]["nome"] if item.get("alunos") else "N/A",
-                        "Status": item["status"]
-                    })
-                st.dataframe(pd.DataFrame(agenda_df), use_container_width=True)
+                    if dt.date() == data_filtro:
+                        agendamentos_dia[dt.hour] = {
+                            "id": item["id"],
+                            "aluno": item["alunos"]["nome"] if item.get("alunos") else "Desconhecido",
+                            "minuto": dt.strftime("%M"),
+                            "status": item.get("status", "agendado")
+                        }
 
-    # 3. CHECK-IN DIÁRIO
+            # Visualização em linha do tempo (6h às 22h)
+            for h in range(6, 23):
+                hora_str = f"{h:02d}:00"
+                if h in agendamentos_dia:
+                    info = agendamentos_dia[h]
+                    col_info, col_btn = st.columns([3, 1])
+                    with col_info:
+                        st.info(f"⏰ **{hora_str}** (às {h:02d}:{info['minuto']}) — 👤 **{info['aluno']}** [{info['status'].upper()}]")
+                    with col_btn:
+                        if st.button("🗑️ Desmarcar", key=f"del_{info['id']}", use_container_width=True):
+                            preparar_cliente()
+                            supabase.table("agendamentos").delete().eq("id", info["id"]).execute()
+                            st.success("Agendamento desmarcado!")
+                            st.rerun()
+                else:
+                    st.write(f"⏱️ `{hora_str}` — *Livre*")
+
+    # 3. CHECK-IN DIÁRIO (PRESENÇA E FALTA)
     elif menu == "Check-in Diário":
-        st.header("Apontamento Diário")
+        st.header("Apontamento Diário e Faltas")
         alunos = carregar_alunos()
         
         if alunos:
             mapa_alunos = {a["nome"]: a for a in alunos}
             aluno = mapa_alunos[st.selectbox("Selecione o Aluno", list(mapa_alunos.keys()))]
             
+            aulas_computadas = aluno["presencas"] + aluno["faltas"]
+            
             col1, col2, col3 = st.columns(3)
-            col1.metric("Modalidade", "Pacote" if aluno["tipo_cobranca"] == "pacote" else "Avulso")
+            col1.metric("Modalidade", "Pacote" if aluno["tipo_cobranca"] == "pacote" else "Aula Avulsa")
             
             if aluno["tipo_cobranca"] == "pacote":
                 col2.metric("Aulas Restantes", f"{aluno['aulas_restantes']} / {aluno['total_aulas_pacote']}")
                 total_devido = float(aluno["valor_pacote"])
             else:
-                col2.metric("Presenças no Mês", aluno["presencas"])
-                total_devido = aluno["presencas"] * float(aluno["valor_aula"])
+                col2.metric("Aulas Computadas (Presença + Falta)", aulas_computadas)
+                total_devido = aulas_computadas * float(aluno["valor_aula"])
                 
             col3.metric("Valor Total Devido", f"R$ {total_devido:.2f}")
+            
+            st.caption(f"📌 **Resumo:** {aluno['presencas']} Presenças | {aluno['faltas']} Faltas Não Justificadas")
             
             st.divider()
             c1, c2, c3 = st.columns(3)
@@ -188,11 +216,18 @@ else:
                     update_data["aulas_restantes"] = aluno["aulas_restantes"] - 1
                 
                 supabase.table("alunos").update(update_data).eq("id", aluno["id"]).execute()
+                st.success("Presença registrada!")
                 st.rerun()
                 
-            if c2.button("❌ Registrar Falta (+1)", use_container_width=True):
+            if c2.button("❌ Falta Não Justificada (+1)", use_container_width=True):
                 preparar_cliente()
-                supabase.table("alunos").update({"faltas": aluno["faltas"] + 1}).eq("id", aluno["id"]).execute()
+                novas_faltas = aluno["faltas"] + 1
+                update_data = {"faltas": novas_faltas}
+                if aluno["tipo_cobranca"] == "pacote" and aluno["aulas_restantes"] > 0:
+                    update_data["aulas_restantes"] = aluno["aulas_restantes"] - 1
+                    
+                supabase.table("alunos").update(update_data).eq("id", aluno["id"]).execute()
+                st.warning("Falta registrada e computada no valor!")
                 st.rerun()
                 
             with c3:
@@ -211,12 +246,14 @@ else:
         if alunos:
             relatorio = []
             for d in alunos:
-                devido = float(d["valor_pacote"]) if d["tipo_cobranca"] == "pacote" else (d["presencas"] * float(d["valor_aula"]))
+                aulas_computadas = d["presencas"] + d["faltas"]
+                devido = float(d["valor_pacote"]) if d["tipo_cobranca"] == "pacote" else (aulas_computadas * float(d["valor_aula"]))
                 saldo = devido - float(d["valor_pago"])
                 relatorio.append({
                     "Aluno": d["nome"],
                     "Tipo": "Pacote" if d["tipo_cobranca"] == "pacote" else "Avulso",
-                    "Aulas Restantes": d["aulas_restantes"] if d["tipo_cobranca"] == "pacote" else "N/A",
+                    "Presenças": d["presencas"],
+                    "Faltas Cobradas": d["faltas"],
                     "Total Devido": f"R$ {devido:.2f}",
                     "Valor Pago": f"R$ {float(d['valor_pago']):.2f}",
                     "Saldo Pendente": f"R$ {saldo:.2f}"
