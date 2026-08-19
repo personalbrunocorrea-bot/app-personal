@@ -5,14 +5,22 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="SaaS Personal Trainer", layout="wide")
 
-# Credenciais do Supabase
 SUPABASE_URL = "https://vkanwxrjtajiivghyapb.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZrYW53eHJqdGFqaWl2Z2h5YXBiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxNDgzNTYsImV4cCI6MjEwMjcyNDM1Nn0._JhswzxjiNuXnRXHMcpgEbZiEE017RUyn5AHR_pzslo"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# Gerenciamento de Sessão de Login
 if "user" not in st.session_state:
     st.session_state.user = None
+if "session" not in st.session_state:
+    st.session_state.session = None
+
+# Funcao auxiliar para anexar o token de autenticacao
+def preparar_cliente():
+    if st.session_state.session:
+        token = st.session_state.session.access_token
+        supabase.postgrest.auth(token)
 
 # --- TELA DE LOGIN / CADASTRO ---
 if st.session_state.user is None:
@@ -27,8 +35,10 @@ if st.session_state.user is None:
                 try:
                     res = supabase.auth.sign_in_with_password({"email": email_login, "password": senha_login})
                     st.session_state.user = res.user
+                    st.session_state.session = res.session
+                    st.success("Login realizado com sucesso!")
                     st.rerun()
-                except Exception:
+                except Exception as e:
                     st.error("E-mail ou senha incorretos.")
                     
     with aba_cadastro:
@@ -38,28 +48,31 @@ if st.session_state.user is None:
             if st.form_submit_button("Cadastrar Conta"):
                 try:
                     supabase.auth.sign_up({"email": email_cad, "password": senha_cad})
-                    st.success("Conta criada! Faça login ao lado.")
+                    st.success("Conta criada! Faça login na aba ao lado.")
                 except Exception as e:
-                    st.error(f"Erro: {e}")
+                    st.error(f"Erro ao criar conta: {e}")
 
 # --- APLICAÇÃO PRINCIPAL ---
 else:
     user_id = st.session_state.user.id
+    preparar_cliente()
     
     st.sidebar.write(f"Logado como: **{st.session_state.user.email}**")
-    if st.sidebar.button("🚪 Sair", use_container_width=True):
+    if st.sidebar.button("🚪 Sair (Logout)", use_container_width=True):
         supabase.auth.sign_out()
         st.session_state.user = None
+        st.session_state.session = None
         st.rerun()
         
     st.sidebar.divider()
     menu = st.sidebar.radio("Navegação", ["Calendário / Agenda", "Check-in Diário", "Cadastrar Aluno", "Painel Financeiro"])
 
     def carregar_alunos():
+        preparar_cliente()
         res = supabase.table("alunos").select("*").eq("user_id", user_id).execute()
         return res.data
 
-   # 1. CADASTRO DE ALUNOS
+    # 1. CADASTRO DE ALUNOS
     if menu == "Cadastrar Aluno":
         st.header("Cadastrar Novo Aluno")
         with st.form("form_cadastro"):
@@ -82,12 +95,8 @@ else:
                 else:
                     tipo = "pacote" if tipo_cobranca == "Pacote de Aulas" else "avulso"
                     try:
-                        # Anexa os cabeçalhos de autenticação da sessão ativa
-                        if hasattr(st.session_state, "session") and st.session_state.session:
-                            access_token = st.session_state.session.access_token
-                            supabase.postgrest.auth(access_token)
-                        
-                        dados_aluno = {
+                        preparar_cliente()
+                        dados = {
                             "user_id": user_id,
                             "nome": nome,
                             "tipo_cobranca": tipo,
@@ -100,11 +109,10 @@ else:
                             "faltas": 0,
                             "valor_pago": 0.0
                         }
-                        
-                        supabase.table("alunos").insert(dados_aluno).execute()
+                        supabase.table("alunos").insert(dados).execute()
                         st.success(f"Aluno {nome} cadastrado com sucesso!")
                     except Exception as e:
-                        st.error(f"Erro no banco de dados: {e}")
+                        st.error(f"Erro ao salvar no banco de dados: {e}")
 
     # 2. CALENDÁRIO / AGENDA DE ROTINA
     elif menu == "Calendário / Agenda":
@@ -122,6 +130,7 @@ else:
                 hora_aula = st.time_input("Horário")
                 
                 if st.form_submit_button("Marcar na Agenda"):
+                    preparar_cliente()
                     dt_completa = datetime.combine(data_aula, hora_aula).isoformat()
                     supabase.table("agendamentos").insert({
                         "user_id": user_id,
@@ -133,6 +142,7 @@ else:
             st.divider()
             st.subheader("Sua Agenda de Hoje e Próximos Dias")
             
+            preparar_cliente()
             res_agenda = supabase.table("agendamentos").select("*, alunos(nome)").eq("user_id", user_id).order("data_hora").execute()
             if res_agenda.data:
                 agenda_df = []
@@ -171,6 +181,7 @@ else:
             c1, c2, c3 = st.columns(3)
             
             if c1.button("✅ Confirmar Aula (+1)", use_container_width=True):
+                preparar_cliente()
                 novas_presencas = aluno["presencas"] + 1
                 update_data = {"presencas": novas_presencas}
                 if aluno["tipo_cobranca"] == "pacote" and aluno["aulas_restantes"] > 0:
@@ -180,12 +191,14 @@ else:
                 st.rerun()
                 
             if c2.button("❌ Registrar Falta (+1)", use_container_width=True):
+                preparar_cliente()
                 supabase.table("alunos").update({"faltas": aluno["faltas"] + 1}).eq("id", aluno["id"]).execute()
                 st.rerun()
                 
             with c3:
                 pago = st.number_input("Registrar Pagamento (R$)", min_value=0.0, step=10.0)
                 if st.button("💰 Confirmar Pagamento", use_container_width=True):
+                    preparar_cliente()
                     novo_total_pago = float(aluno["valor_pago"]) + pago
                     supabase.table("alunos").update({"valor_pago": novo_total_pago}).eq("id", aluno["id"]).execute()
                     st.success("Pagamento registrado!")
