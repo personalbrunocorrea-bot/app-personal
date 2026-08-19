@@ -15,14 +15,12 @@ st.set_page_config(
 def aplicar_estilo_customizado():
     st.markdown("""
         <style>
-        /* Estilização dos textos das métricas/cards */
         [data-testid="stMetricValue"] {
             font-size: 22px !important;
             font-weight: bold;
             color: #2ECC71 !important;
         }
         
-        /* Arredondamento e efeito hover nos botões */
         .stButton>button {
             border-radius: 10px !important;
             font-weight: 600 !important;
@@ -32,12 +30,10 @@ def aplicar_estilo_customizado():
             transform: scale(1.02);
         }
 
-        /* Suavizar bordas das caixas/containers */
         [data-testid="stVerticalBlockBorderWrapper"] {
             border-radius: 12px !important;
         }
 
-        /* Linha sutil para separar a barra lateral */
         section[data-testid="stSidebar"] {
             border-right: 1px solid rgba(255, 255, 255, 0.08);
         }
@@ -173,9 +169,7 @@ else:
             }
         )
 
-    # ==========================================  
     # CARDS DE ALERTAS INTELIGENTES EM DESTAQUE
-    # ==========================================  
     hoje_dia = date.today().day  
     alertas_pacotes = []  
     alertas_financeiros = []  
@@ -208,9 +202,7 @@ else:
                         st.markdown(f"• {item}")
         st.divider()
 
-    # ==========================================
-    # MENU 1: CADASTRO DE ALUNO
-    # ==========================================
+    # MENU 1: CADASTRAR ALUNO
     if menu == "Cadastrar Aluno":  
         st.title("➕ Cadastrar Novo Aluno")  
         with st.form("form_novo_aluno"):  
@@ -247,9 +239,7 @@ else:
                 st.success(f"Aluno **{nome}** cadastrado com sucesso!")  
                 st.rerun()  
 
-    # ==========================================
     # MENU 2: AGENDA SEMANAL
-    # ==========================================
     elif menu == "Agenda Semanal (Com Check-in)":  
         st.title("📅 Agenda Semanal")  
           
@@ -257,10 +247,7 @@ else:
         inicio_semana = hoje - timedelta(days=hoje.weekday())  
         datas_da_semana = [inicio_semana + timedelta(days=i) for i in range(7)]  
           
-        c_head1, c_head2 = st.columns([2, 1])  
-        with c_head1:  
-            modo_exibicao = st.radio("Formato de Visualização:", ["📱 Cartões por Dia (Mobile)", "🖥️ Grade Completa (Desktop)"], horizontal=True)  
-          
+        modo_exibicao = st.radio("Formato de Visualização:", ["📱 Cartões por Dia (Mobile)", "🖥️ Grade Completa (Desktop)"], horizontal=True)  
         st.divider()  
 
         with st.expander("➕ Agendar Novo Treino"):  
@@ -291,7 +278,6 @@ else:
         dados_agenda = res_ag.data if res_ag.data else []  
         mapa_alunos_id = {al["id"]: al for al in alunos_todos}  
 
-        # VISUALIZAÇÃO EM CARDS
         if modo_exibicao == "📱 Cartões por Dia (Mobile)":  
             dia_selecionado = st.selectbox("Selecione o Dia da Semana", [f"{dias_semana[i]} ({datas_da_semana[i].strftime('%d/%m')})" for i in range(7)])  
             idx_dia = [f"{dias_semana[i]} ({datas_da_semana[i].strftime('%d/%m')})" for i in range(7)].index(dia_selecionado)  
@@ -308,9 +294,7 @@ else:
                         "hora_str": dt.strftime("%H:%M"),  
                         "aluno_obj": aluno_obj,  
                         "aluno_nome": aluno_obj.get("nome", "Indefinido"),  
-                        "telefone": aluno_obj.get("telefone", ""),  
-                        "status": item.get("status", "agendado"),  
-                        "data_str": dt.strftime("%d/%m/%Y")  
+                        "status": item.get("status", "agendado")  
                     })  
             agendamentos_dia.sort(key=lambda x: x["hora_dt"])  
   
@@ -325,13 +309,12 @@ else:
                             st.markdown(f"### ⏰ {item['hora_str']}")  
                             st.markdown(f"👤 **{item['aluno_nome']}**")  
                         with c_m2:  
-                            if item["status"] == "realizada":
-                                status_tag = '<span style="background-color: #2ECC71; color: white; padding: 3px 8px; border-radius: 6px; font-weight: bold; font-size: 12px;">✅ REALIZADA</span>'
-                            elif item["status"] == "falta_cobrada":
-                                status_tag = '<span style="background-color: #E74C3C; color: white; padding: 3px 8px; border-radius: 6px; font-weight: bold; font-size: 12px;">❌ FALTA COBRADA</span>'
-                            else:
-                                status_tag = '<span style="background-color: #3498DB; color: white; padding: 3px 8px; border-radius: 6px; font-weight: bold; font-size: 12px;">🔵 AGENDADO</span>'
-                            
+                            if item["status"] == "realizada":  
+                                status_tag = '<span style="background-color: #2ECC71; color: white; padding: 3px 8px; border-radius: 6px; font-weight: bold; font-size: 12px;">✅ REALIZADA</span>'  
+                            elif item["status"] == "falta_cobrada":  
+                                status_tag = '<span style="background-color: #E74C3C; color: white; padding: 3px 8px; border-radius: 6px; font-weight: bold; font-size: 12px;">❌ FALTA COBRADA</span>'  
+                            else:  
+                                status_tag = '<span style="background-color: #3498DB; color: white; padding: 3px 8px; border-radius: 6px; font-weight: bold; font-size: 12px;">🔵 AGENDADO</span>'  
                             st.markdown(f"Status: {status_tag}", unsafe_allow_html=True)  
                             if aluno_data:  
                                 st.caption(f"Aulas restantes: {aluno_data.get('aulas_restantes', 0)}")  
@@ -361,11 +344,10 @@ else:
   
                             if ca3.button("🗑️", key=f"mdel_{item['id']}", use_container_width=True):  
                                 preparar_cliente()  
-                                desfazer_computo_aula(aluno_data, item["status"])
+                                desfazer_computo_aula(aluno_data, item["status"])  
                                 supabase.table("agendamentos").delete().eq("id", item["id"]).execute()  
                                 st.rerun()  
 
-        # VISUALIZAÇÃO EM GRADE DESKTOP
         else:  
             cols = st.columns(7)  
             for idx, col in enumerate(cols):  
@@ -430,9 +412,7 @@ else:
                                 supabase.table("agendamentos").delete().eq("id", item["id"]).execute()  
                                 st.rerun()  
 
-    # ==========================================
     # MENU 3: PERFIL DO ALUNO
-    # ==========================================
     elif menu == "👤 Perfil do Aluno (Frequência e Financeiro)":  
         st.title("👤 Perfil Individual do Aluno")  
         if not alunos_todos:  
@@ -511,9 +491,7 @@ else:
                         st.success("Dados financeiros atualizados com sucesso!")  
                         st.rerun()  
 
-    # ==========================================
     # MENU 4: PAINEL FINANCEIRO GERAL
-    # ==========================================
     elif menu == "Painel Financeiro Geral":  
         st.title("📈 Painel Financeiro e Relatório Geral")  
         if not alunos_todos:  
