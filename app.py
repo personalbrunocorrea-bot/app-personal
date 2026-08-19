@@ -376,7 +376,7 @@ else:
                     })  
             agendamentos_dia.sort(key=lambda x: x["hora_dt"])  
   
-            if not agendamentos_dia:  
+           if not agendamentos_dia:  
                 st.info("Nenhum treino agendado para este dia.")  
             else:  
                 for item in agendamentos_dia:  
@@ -387,15 +387,45 @@ else:
                             st.markdown(f"### ⏰ {item['hora_str']}")  
                             st.markdown(f"👤 **{item['aluno_nome']}**")  
                         with c_m2:  
-                            status_tag = "🔵 AGENDADO"  
-                           # Substitua a linha antiga de status por estas badges em HTML
-if item["status"] == "realizada":
-    status_tag = '<span style="background-color: #2ECC71; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 12px;">✅ REALIZADA</span>'
-elif item["status"] == "falta_cobrada":
-    status_tag = '<span style="background-color: #E74C3C; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 12px;">❌ FALTA COBRADA</span>'
-else:
-    status_tag = '<span style="background-color: #3498DB; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 12px;">🔵 AGENDADO</span>'
-
+                            if item["status"] == "realizada":
+                                status_tag = '<span style="background-color: #2ECC71; color: white; padding: 3px 8px; border-radius: 6px; font-weight: bold; font-size: 12px;">✅ REALIZADA</span>'
+                            elif item["status"] == "falta_cobrada":
+                                status_tag = '<span style="background-color: #E74C3C; color: white; padding: 3px 8px; border-radius: 6px; font-weight: bold; font-size: 12px;">❌ FALTA COBRADA</span>'
+                            else:
+                                status_tag = '<span style="background-color: #3498DB; color: white; padding: 3px 8px; border-radius: 6px; font-weight: bold; font-size: 12px;">🔵 AGENDADO</span>'
+                            
+                            st.markdown(f"Status: {status_tag}", unsafe_allow_html=True)  
+                            if aluno_data:  
+                                st.caption(f"Aulas restantes: {aluno_data.get('aulas_restantes', 0)}")  
+                        with c_m3:  
+                            ca1, ca2, ca3 = st.columns(3)  
+                            if ca1.button("✅ Presença", key=f"mp_{item['id']}", use_container_width=True):  
+                                preparar_cliente()  
+                                supabase.table("agendamentos").update({"status": "realizada"}).eq("id", item["id"]).execute()  
+                                if aluno_data:  
+                                    upd = {"presencas": (aluno_data.get("presencas") or 0) + 1}  
+                                    restantes = aluno_data.get("aulas_restantes") or 0  
+                                    if aluno_data.get("tipo_cobranca") == "pacote" and restantes > 0:  
+                                        upd["aulas_restantes"] = restantes - 1  
+                                    supabase.table("alunos").update(upd).eq("id", aluno_data["id"]).execute()  
+                                st.rerun()  
+  
+                            if ca2.button("❌ Falta", key=f"mfc_{item['id']}", use_container_width=True):  
+                                preparar_cliente()  
+                                supabase.table("agendamentos").update({"status": "falta_cobrada"}).eq("id", item["id"]).execute()  
+                                if aluno_data:  
+                                    upd = {"faltas": (aluno_data.get("faltas") or 0) + 1}  
+                                    restantes = aluno_data.get("aulas_restantes") or 0  
+                                    if aluno_data.get("tipo_cobranca") == "pacote" and restantes > 0:  
+                                        upd["aulas_restantes"] = restantes - 1  
+                                    supabase.table("alunos").update(upd).eq("id", aluno_data["id"]).execute()  
+                                st.rerun()  
+  
+                            if ca3.button("🗑️", key=f"mdel_{item['id']}", use_container_width=True):  
+                                preparar_cliente()  
+                                desfazer_computo_aula(aluno_data, item["status"])
+                                supabase.table("agendamentos").delete().eq("id", item["id"]).execute()  
+                                st.rerun()
 st.markdown(f"Status: {status_tag}", unsafe_allow_html=True)  
  with st.container(border=True):  
                         c_m1, c_m2, c_m3 = st.columns([2, 2, 3])  
