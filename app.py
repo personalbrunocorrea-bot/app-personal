@@ -54,9 +54,12 @@ SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "")
 
 @st.cache_resource  
 def init_supabase():  
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        st.error("⚠️ As credenciais do Supabase não foram encontradas nos Secrets do Streamlit.")
+        st.stop()
     return create_client(SUPABASE_URL, SUPABASE_KEY)  
 
-supabase: Client = init_supabase()  
+supabase: Client = init_supabase()
 
 if "user" not in st.session_state:  
     st.session_state.user = None  
