@@ -87,7 +87,7 @@ else:
         st.session_state.session = None  
         st.rerun()  
           
-    with st.sidebar:
+   with st.sidebar:
     menu = option_menu(
         menu_title="Navegação",
         options=[
