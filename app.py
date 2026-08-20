@@ -5,6 +5,7 @@ from streamlit_option_menu import option_menu
 from streamlit_calendar import calendar
 import urllib.parse
 import re
+import uuid
 
 # ==========================================
 # CONFIGURAÇÃO E CSS
@@ -34,6 +35,68 @@ def init_supabase():
 
 supabase: Client = init_supabase()
 
+# ==========================================
+# MODO AUTOATENDIMENTO: PAR-Q DO ALUNO
+# ==========================================
+token_aluno = st.query_params.get("token", None)
+
+if token_aluno:
+    try:
+        res_p = supabase.table("alunos").select("*").eq("parq_token", token_aluno).execute()
+        aluno_parq = res_p.data[0] if res_p.data else None
+    except Exception as e:
+        aluno_parq = None
+
+    if not aluno_parq:
+        st.error("❌ Link do PAR-Q inválido, expirado ou aluno não encontrado. Por favor, solicite um novo link ao seu Personal Trainer.")
+        st.stop()
+
+    st.title("📋 Questionário de Prontidão para Atividade Física (PAR-Q)")
+    st.markdown(f"Olá, **{aluno_parq['nome']}**! Para garantir sua segurança durante os treinos, por favor responda com atenção às perguntas abaixo.")
+    
+    if aluno_parq.get("parq_status") == "assinado":
+        dt_ass = aluno_parq.get("parq_data", "")[:10]
+        st.success(f"✅ Você já preencheu e assinou este questionário em **{dt_ass}**. Obrigado pela cooperação!")
+        st.stop()
+
+    with st.form("form_parq_aluno"):
+        st.markdown("##### Responda com 'Sim' ou 'Não':")
+        
+        q1 = st.radio("1. Seu médico já disse que você possui algum problema de coração e recomendou que só fizesse atividade física sob supervisão médica?", ["Não", "Sim"])
+        q2 = st.radio("2. Você sente dores no peito quando pratica atividade física?", ["Não", "Sim"])
+        q3 = st.radio("3. No último mês, você sentiu dor no peito quando NÃO estava praticando atividade física?", ["Não", "Sim"])
+        q4 = st.radio("4. Você apresenta algum problema ósseo ou articular que poderia ser agravado pela atividade física?", ["Não", "Sim"])
+        q5 = st.radio("5. Você perde o equilíbrio devido a tontura ou alguma vez perdeu a consciência?", ["Não", "Sim"])
+        q6 = st.radio("6. Você toma atualmente algum medicamento para pressão arterial ou problema de coração?", ["Não", "Sim"])
+        q7 = st.radio("7. Sabe de nenhuma outra razão pela qual você não deva praticar atividade física?", ["Não", "Sim"])
+
+        st.divider()
+        st.markdown("### 📝 Termo de Responsabilidade")
+        st.caption("Declaro que respondi com verdade a todas as perguntas acima e estou ciente de que é minha responsabilidade comunicar qualquer alteração em meu estado de saúde ao meu Personal Trainer.")
+        
+        aceito = st.checkbox("Li, concordo e declaro que as informações prestadas são verdadeiras.")
+
+        if st.form_submit_button("✅ Enviar e Assinar PAR-Q", type="primary", use_container_width=True):
+            if not aceito:
+                st.error("Você precisa marcar a caixa de confirmação para enviar o termo.")
+            else:
+                respostas_json = {"q1": q1, "q2": q2, "q3": q3, "q4": q4, "q5": q5, "q6": q6, "q7": q7}
+                data_hoje_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                supabase.table("alunos").update({
+                    "parq_status": "assinado",
+                    "parq_respostas": respostas_json,
+                    "parq_data": data_hoje_str
+                }).eq("id", aluno_parq["id"]).execute()
+                
+                st.balloons()
+                st.success("✅ PAR-Q enviado com sucesso! O seu Personal Trainer já recebeu sua confirmação. Bons treinos!")
+    st.stop()
+
+
+# ==========================================
+# ÁREA DO PERSONAL TRAINER (SISTEMA DE GESTÃO)
+# ==========================================
 if "user" not in st.session_state: st.session_state.user = None
 if "session" not in st.session_state: st.session_state.session = None
 if "chave_pix" not in st.session_state: st.session_state.chave_pix = ""
@@ -49,9 +112,9 @@ def carregar_alunos(user_id):
 
 hoje = date.today()
 
-# ==========================================
-# TELA DE LOGIN
-# ==========================================
+# ------------------------------------------
+# TELA DE LOGIN DO PERSONAL
+# ------------------------------------------
 if st.session_state.user is None:
     st.title("🏋️ Assistente do Personal")
     aba_login, aba_cad = st.tabs(["🔐 Entrar", "📝 Criar Conta"])
@@ -78,9 +141,9 @@ if st.session_state.user is None:
             except Exception as e:
                 st.error("Erro no cadastro.")
 
-# ==========================================
-# APLICAÇÃO PRINCIPAL
-# ==========================================
+# ------------------------------------------
+# APLICAÇÃO PRINCIPAL LOGADA
+# ------------------------------------------
 else:
     user_id = st.session_state.user.id
     alunos_todos = carregar_alunos(user_id)
@@ -328,15 +391,67 @@ else:
                     st.rerun()
 
     # ------------------------------------------
-    # 3. ALUNOS E CRM (COM EDIÇÃO MANUAL)
+    # 3. ALUNOS & CRM (INCLUINDO GESTÃO DE PAR-Q)
     # ------------------------------------------
     elif menu == "👤 Alunos & CRM":
-        st.title("👤 Gestão de Alunos")
-        
+        st.title("👤 Gestão de Alunos e PAR-Q")
+
+        # Configuração da URL Base do App para gerar links
+        base_app_url = st.text_input("🔗 URL Base do seu App Streamlit (Ex: https://seuapp.streamlit.app):", value="https://meustudio.streamlit.app")
+
         if alunos_todos:
-            with st.expander("✏️ Editar Valores / Dados Manuais do Aluno"):
-                st.caption("Altere preços de pacotes, descontos ou corrija quantidades de aulas manualmente.")
-                mapa_edicao = {al["nome"]: al for al in alunos_todos}
+            st.markdown("### 📜 Lista de Alunos e PAR-Q")
+            for al in alunos_todos:
+                st_parq = al.get("parq_status", "pendente")
+                
+                with st.container(border=True):
+                    c_info, c_status, c_acao = st.columns([2, 1, 1.5])
+                    
+                    with c_info:
+                        st.markdown(f"**{al['nome']}**")
+                        st.caption(f"Tel: {al.get('telefone', 'Não informado')} | Presenças: {al.get('presencas', 0)}")
+                    
+                    with c_status:
+                        if st_parq == "assinado":
+                            st.success("✅ PAR-Q Assinado")
+                            dt_a = al.get("parq_data", "")[:10]
+                            st.caption(f"Data: {dt_a}")
+                        else:
+                            st.warning("⚠️ PAR-Q Pendente")
+
+                    with c_acao:
+                        # Botão para gerar token / enviar WhatsApp
+                        token = al.get("parq_token")
+                        if not token:
+                            if st.button("🔑 Gerar Link", key=f"token_{al['id']}"):
+                                novo_token = str(uuid.uuid4())[:10]
+                                preparar_cliente()
+                                supabase.table("alunos").update({"parq_token": novo_token}).eq("id", al["id"]).execute()
+                                st.rerun()
+                        else:
+                            link_parq = f"{base_app_url}/?token={token}"
+                            msg_parq = f"Olá {al['nome']}! Para iniciarmos nossos treinos com toda a segurança, por favor preencha e assine seu PAR-Q online no link a seguir: {link_parq}"
+                            
+                            tel_num = re.sub(r'\D', '', str(al.get("telefone", "")))
+                            if tel_num:
+                                link_wsp = f"https://wa.me/55{tel_num}?text={urllib.parse.quote(msg_parq)}"
+                                st.markdown(f"<a href='{link_wsp}' target='_blank'><button style='background-color:#25D366; color:white; border:none; padding:8px; border-radius:5px; width:100%;'>📱 Enviar PAR-Q</button></a>", unsafe_allow_html=True)
+                            else:
+                                st.caption("Cadastre o telefone")
+
+                        # Expander para ver respostas se já assinado
+                        if st_parq == "assinado":
+                            with st.expander("👁️ Ver Respostas do PAR-Q"):
+                                resp = al.get("parq_respostas") or {}
+                                for k, v in resp.items():
+                                    cor = "🔴" if v == "Sim" else "🟢"
+                                    st.write(f"{cor} {k.upper()}: **{v}**")
+
+        st.divider()
+
+        with st.expander("✏️ Editar Valores / Dados Manuais do Aluno"):
+            mapa_edicao = {al["nome"]: al for al in alunos_todos}
+            if mapa_edicao:
                 aluno_ed = st.selectbox("Selecione o Aluno para Editar", list(mapa_edicao.keys()))
                 dados_ed = mapa_edicao[aluno_ed]
                 
@@ -364,8 +479,6 @@ else:
                         st.success("Valores atualizados manualmente com sucesso!")
                         st.rerun()
 
-        st.divider()
-
         with st.expander("➕ Cadastrar Novo Aluno"):
             with st.form("form_novo"):
                 nome = st.text_input("Nome")
@@ -383,12 +496,14 @@ else:
 
                 if st.form_submit_button("Salvar Aluno"):
                     preparar_cliente()
+                    token_inicial = str(uuid.uuid4())[:10]
                     supabase.table("alunos").insert({
                         "user_id": user_id, "nome": nome, "data_nascimento": data_nasc.isoformat(),
                         "telefone": telefone, "tipo_cobranca": tipo_cob,
                         "valor_pacote": valor_pacote, "total_aulas_pacote": aulas_pacote, "aulas_restantes": aulas_pacote,
                         "valor_aula": valor_aula, "vencimento": dia_venc,
-                        "presencas": 0, "faltas": 0, "valor_pago": 0.0
+                        "presencas": 0, "faltas": 0, "valor_pago": 0.0,
+                        "parq_token": token_inicial, "parq_status": "pendente"
                     }).execute()
                     st.success("Salvo com sucesso!")
                     st.rerun()
