@@ -83,14 +83,17 @@ if token_aluno:
                 respostas_json = {"q1": q1, "q2": q2, "q3": q3, "q4": q4, "q5": q5, "q6": q6, "q7": q7}
                 data_hoje_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                supabase.table("alunos").update({
-                    "parq_status": "assinado",
-                    "parq_respostas": respostas_json,
-                    "parq_data": data_hoje_str
-                }).eq("id", aluno_parq["id"]).execute()
-                
-                st.balloons()
-                st.success("✅ PAR-Q enviado com sucesso! O seu Personal Trainer já recebeu sua confirmação. Bons treinos!")
+                try:
+                    supabase.table("alunos").update({
+                        "parq_status": "assinado",
+                        "parq_respostas": respostas_json,
+                        "parq_data": data_hoje_str
+                    }).eq("id", aluno_parq["id"]).execute()
+                    
+                    st.balloons()
+                    st.success("✅ PAR-Q enviado com sucesso! O seu Personal Trainer já recebeu sua confirmação. Bons treinos!")
+                except Exception as e:
+                    st.error(f"Erro ao salvar PAR-Q: {e}")
     st.stop()
 
 
@@ -107,8 +110,12 @@ def preparar_cliente():
 
 def carregar_alunos(user_id):
     preparar_cliente()
-    res = supabase.table("alunos").select("*").eq("user_id", user_id).order("nome").execute()
-    return res.data if res.data else []
+    try:
+        res = supabase.table("alunos").select("*").eq("user_id", user_id).order("nome").execute()
+        return res.data if res.data else []
+    except Exception as e:
+        st.error(f"Erro ao carregar alunos: {e}")
+        return []
 
 hoje = date.today()
 
@@ -264,8 +271,12 @@ else:
         
         preparar_cliente()
         inicio_mes = (hoje.replace(day=1) - timedelta(days=7)).isoformat()
-        res_ag = supabase.table("agendamentos").select("*").eq("user_id", user_id).gte("data_hora", inicio_mes).execute()
-        agendamentos = res_ag.data if res_ag.data else []
+        try:
+            res_ag = supabase.table("agendamentos").select("*").eq("user_id", user_id).gte("data_hora", inicio_mes).execute()
+            agendamentos = res_ag.data if res_ag.data else []
+        except Exception as e:
+            agendamentos = []
+            st.error(f"Erro ao carregar agendamentos: {e}")
 
         mapa_alunos_id = {al["id"]: al for al in alunos_todos}
         
@@ -331,12 +342,15 @@ else:
                     if st.form_submit_button("Agendar Horário"):
                         dt_final = datetime.combine(dt_ag, hr_ag)
                         preparar_cliente()
-                        supabase.table("agendamentos").insert({
-                            "user_id": user_id, "aluno_id": mapa_nomes[al_nome],
-                            "data_hora": dt_final.isoformat(), "local": local_ag, "status": "agendado"
-                        }).execute()
-                        st.success("Agendado!")
-                        st.rerun()
+                        try:
+                            supabase.table("agendamentos").insert({
+                                "user_id": user_id, "aluno_id": mapa_nomes[al_nome],
+                                "data_hora": dt_final.isoformat(), "local": local_ag, "status": "agendado"
+                            }).execute()
+                            st.success("Agendado!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao agendar: {e}")
 
         with c_gerenciar:
             st.markdown("### ⚙️ Gerenciar Presenças / Faltas")
@@ -382,16 +396,19 @@ else:
                         str_status_db = "desmarcado"
                         
                     preparar_cliente()
-                    supabase.table("agendamentos").update({"status": str_status_db}).eq("id", ag_selecionado["id"]).execute()
-                    
-                    if upd_aluno:
-                        supabase.table("alunos").update(upd_aluno).eq("id", aluno_dados["id"]).execute()
+                    try:
+                        supabase.table("agendamentos").update({"status": str_status_db}).eq("id", ag_selecionado["id"]).execute()
                         
-                    st.success("Status atualizado com sucesso!")
-                    st.rerun()
+                        if upd_aluno:
+                            supabase.table("alunos").update(upd_aluno).eq("id", aluno_dados["id"]).execute()
+                            
+                        st.success("Status atualizado com sucesso!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao atualizar status: {e}")
 
     # ------------------------------------------
-    # 3. ALUNOS & CRM (EDIÇÃO COMPLETA DE PERFIL)
+    # 3. ALUNOS & CRM (EDIÇÃO DE PERFIL)
     # ------------------------------------------
     elif menu == "👤 Alunos & CRM":
         st.title("👤 Gestão de Alunos e PAR-Q")
@@ -425,8 +442,11 @@ else:
                             if st.button("🔑 Gerar Link", key=f"token_{al['id']}"):
                                 novo_token = str(uuid.uuid4())[:10]
                                 preparar_cliente()
-                                supabase.table("alunos").update({"parq_token": novo_token}).eq("id", al["id"]).execute()
-                                st.rerun()
+                                try:
+                                    supabase.table("alunos").update({"parq_token": novo_token}).eq("id", al["id"]).execute()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Erro ao gerar token: {e}")
                         else:
                             link_parq = f"{base_app_url}/?token={token}"
                             msg_parq = f"Olá {al['nome']}! Para iniciarmos nossos treinos com toda a segurança, por favor preencha e assine seu PAR-Q online no link a seguir: {link_parq}"
@@ -447,9 +467,9 @@ else:
 
         st.divider()
 
-        # --- SEÇÃO DE EDIÇÃO COMPLETA DE PERFIL ---
+        # --- SEÇÃO DE EDIÇÃO DE PERFIL ---
         if alunos_todos:
-            with st.expander("✏️ Editar Perfil Completo do Aluno", expanded=False):
+            with st.expander("✏️ Editar Perfil do Aluno", expanded=False):
                 mapa_edicao = {al["nome"]: al for al in alunos_todos}
                 aluno_sel_nome = st.selectbox("Selecione o Aluno para Editar", list(mapa_edicao.keys()))
                 aluno_sel = mapa_edicao[aluno_sel_nome]
@@ -484,15 +504,6 @@ else:
                     with col_e2:
                         f_emg_fone = st.text_input("Telefone de Emergência", value=aluno_sel.get("contato_emergencia_fone", ""))
 
-                    st.markdown("#### 🩺 Anamnese e Objetivos")
-                    f_restricoes = st.text_area("Restrições de Saúde / Lesões / Observações", value=aluno_sel.get("restricoes_saude", ""), help="Ex: Lesão no joelho esquerdo, hipertensão, etc.")
-                    
-                    col_o1, col_o2 = st.columns(2)
-                    with col_o1:
-                        f_objetivo = st.text_input("Objetivo Principal", value=aluno_sel.get("objetivo", ""), placeholder="Ex: Emagrecimento, Hipertrofia")
-                    with col_o2:
-                        f_nivel = st.selectbox("Nível de Experiência", ["Iniciante", "Intermediário", "Avançado"], index=["Iniciante", "Intermediário", "Avançado"].index(aluno_sel.get("nivel", "Iniciante") if aluno_sel.get("nivel") in ["Iniciante", "Intermediário", "Avançado"] else "Iniciante"))
-
                     st.markdown("#### 💰 Plano e Frequência")
                     col_f1, col_f2, col_f3 = st.columns(3)
                     with col_f1:
@@ -505,29 +516,29 @@ else:
                         f_valor_pago = st.number_input("Valor Já Pago (R$)", value=float(aluno_sel.get("valor_pago") or 0.0), min_value=0.0)
                         f_aulas_restantes = st.number_input("Aulas Restantes", value=int(aluno_sel.get("aulas_restantes") or 0), min_value=0)
 
-                    if st.form_submit_button("💾 Salvar Perfil Completo", type="primary", use_container_width=True):
+                    if st.form_submit_button("💾 Salvar Perfil", type="primary", use_container_width=True):
                         preparar_cliente()
-                        supabase.table("alunos").update({
-                            "nome": f_nome,
-                            "data_nascimento": f_data_nasc.isoformat(),
-                            "telefone": f_telefone,
-                            "email": f_email,
-                            "cpf": f_cpf,
-                            "status": f_status,
-                            "contato_emergencia_nome": f_emg_nome,
-                            "contato_emergencia_fone": f_emg_fone,
-                            "restricoes_saude": f_restricoes,
-                            "objetivo": f_objetivo,
-                            "nivel": f_nivel,
-                            "valor_pacote": f_valor_pacote,
-                            "valor_aula": f_valor_aula,
-                            "presencas": f_presencas,
-                            "faltas": f_faltas,
-                            "valor_pago": f_valor_pago,
-                            "aulas_restantes": f_aulas_restantes
-                        }).eq("id", aluno_sel["id"]).execute()
-                        st.success("Perfil do aluno atualizado com sucesso!")
-                        st.rerun()
+                        try:
+                            supabase.table("alunos").update({
+                                "nome": f_nome,
+                                "data_nascimento": f_data_nasc.isoformat(),
+                                "telefone": f_telefone,
+                                "email": f_email,
+                                "cpf": f_cpf,
+                                "status": f_status,
+                                "contato_emergencia_nome": f_emg_nome,
+                                "contato_emergencia_fone": f_emg_fone,
+                                "valor_pacote": f_valor_pacote,
+                                "valor_aula": f_valor_aula,
+                                "presencas": f_presencas,
+                                "faltas": f_faltas,
+                                "valor_pago": f_valor_pago,
+                                "aulas_restantes": f_aulas_restantes
+                            }).eq("id", aluno_sel["id"]).execute()
+                            st.success("Perfil do aluno atualizado com sucesso!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao salvar alterações no Supabase: {e}")
 
         # --- SEÇÃO CADASTRO ---
         with st.expander("➕ Cadastrar Novo Aluno"):
@@ -548,16 +559,28 @@ else:
                 if st.form_submit_button("Salvar Aluno"):
                     preparar_cliente()
                     token_inicial = str(uuid.uuid4())[:10]
-                    supabase.table("alunos").insert({
-                        "user_id": user_id, "nome": nome, "data_nascimento": data_nasc.isoformat(),
-                        "telefone": telefone, "tipo_cobranca": tipo_cob,
-                        "valor_pacote": valor_pacote, "total_aulas_pacote": aulas_pacote, "aulas_restantes": aulas_pacote,
-                        "valor_aula": valor_aula, "vencimento": dia_venc,
-                        "presencas": 0, "faltas": 0, "valor_pago": 0.0,
-                        "parq_token": token_inicial, "parq_status": "pendente"
-                    }).execute()
-                    st.success("Salvo com sucesso!")
-                    st.rerun()
+                    try:
+                        supabase.table("alunos").insert({
+                            "user_id": user_id, 
+                            "nome": nome, 
+                            "data_nascimento": data_nasc.isoformat(),
+                            "telefone": telefone, 
+                            "tipo_cobranca": tipo_cob,
+                            "valor_pacote": valor_pacote, 
+                            "total_aulas_pacote": aulas_pacote, 
+                            "aulas_restantes": aulas_pacote,
+                            "valor_aula": valor_aula, 
+                            "vencimento": dia_venc,
+                            "presencas": 0, 
+                            "faltas": 0, 
+                            "valor_pago": 0.0,
+                            "parq_token": token_inicial, 
+                            "parq_status": "pendente"
+                        }).execute()
+                        st.success("Aluno salvo com sucesso!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao cadastrar aluno no Supabase: {e}")
 
     # ------------------------------------------
     # 4. FINANCEIRO GERAL
@@ -613,12 +636,15 @@ else:
                                 if st.button("✅ Registrar Pagamento", key=f"pag_{al['id']}", use_container_width=True):
                                     preparar_cliente()
                                     novas_aulas = (al.get("total_aulas_pacote") or 10) if al.get("tipo_cobranca") == "pacote" else 0
-                                    supabase.table("alunos").update({
-                                        "valor_pago": devido,
-                                        "aulas_restantes": (al.get("aulas_restantes") or 0) + novas_aulas
-                                    }).eq("id", al["id"]).execute()
-                                    st.success("Pagamento registrado!")
-                                    st.rerun()
+                                    try:
+                                        supabase.table("alunos").update({
+                                            "valor_pago": devido,
+                                            "aulas_restantes": (al.get("aulas_restantes") or 0) + novas_aulas
+                                        }).eq("id", al["id"]).execute()
+                                        st.success("Pagamento registrado!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Erro ao registrar pagamento: {e}")
 
         with tab_caixa:
             st.markdown("### 📈 Fluxo de Caixa e Metas")
