@@ -619,36 +619,22 @@ else:
                                     }).eq("id", al["id"]).execute()
                                     st.success("Pagamento registrado!")
                                     st.rerun()
-                            else:
-                                if st.button("🔄 Renovar Pacote", key=f"renovar_{al['id']}", use_container_width=True):
-                                    preparar_cliente()
-                                    novas_aulas = al.get("total_aulas_pacote") or 10
-                                    supabase.table("alunos").update({
-                                        "valor_pago": 0.0,
-                                        "aulas_restantes": (al.get("aulas_restantes") or 0) + novas_aulas,
-                                        "presencas": 0,
-                                        "faltas": 0
-                                    }).eq("id", al["id"]).execute()
-                                    st.success("Pacote renovado!")
-                                    st.rerun()
 
         with tab_caixa:
             st.markdown("### 📈 Fluxo de Caixa e Metas")
             
-            meta_faturamento = st.number_input("Definir Meta de Faturamento Mensal (R$):", value=5000.0, step=500.0)
-            
-            total_pago_caixa = sum([float(al.get("valor_pago") or 0.0) for al in alunos_todos])
-            total_a_receber = sum([
-                max(0.0, (float(al.get("valor_pacote") or 0.0) if al.get("tipo_cobranca") == "pacote" else ((al.get("presencas") or 0) + (al.get("faltas") or 0)) * float(al.get("valor_aula") or 0.0)) - float(al.get("valor_pago") or 0.0))
-                for al in alunos_todos
-            ])
-            
-            progresso = min(1.0, total_pago_caixa / meta_faturamento) if meta_faturamento > 0 else 0.0
-            
-            st.markdown(f"**Progresso da Meta ({progresso*100:.1f}%): R$ {total_pago_caixa:.2f} / R$ {meta_faturamento:.2f}**")
-            st.progress(progresso)
-            
+            faturado_total = sum([float(al.get('valor_pago') or 0.0) for al in alunos_todos])
+            a_receber = sum([max(0.0, (float(al.get('valor_pacote') or 0.0) if al.get('tipo_cobranca') == 'pacote' else (((al.get('presencas') or 0) + (al.get('faltas') or 0)) * float(al.get('valor_aula') or 0.0))) - float(al.get('valor_pago') or 0.0)) for al in alunos_todos])
+
+            col_c1, col_c2 = st.columns(2)
+            col_c1.metric("Total Arrecadado", f"R$ {faturado_total:.2f}")
+            col_c2.metric("Total Pendente", f"R$ {a_receber:.2f}")
+
             st.divider()
-            c_c1, c_c2 = st.columns(2)
-            c_c1.metric("Total Recebido (Caixa)", f"R$ {total_pago_caixa:.2f}")
-            c_c2.metric("Previsão a Receber", f"R$ {total_a_receber:.2f}")
+            st.markdown("#### 🎯 Meta Mensal de Faturamento")
+            meta_input = st.number_input("Defina sua Meta Mensal (R$):", min_value=0.0, value=5000.0, step=500.0)
+            
+            if meta_input > 0:
+                progresso = min(1.0, faturado_total / meta_input)
+                st.progress(progresso)
+                st.caption(f"Você atingiu **{progresso * 100:.1f}%** da sua meta (R$ {faturado_total:.2f} / R$ {meta_input:.2f}).")
