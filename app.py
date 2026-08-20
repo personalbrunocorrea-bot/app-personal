@@ -1,387 +1,379 @@
-import uuid
-from datetime import datetime, timedelta, timezone
 import streamlit as st
+import pandas as pd
+from datetime import datetime, timedelta, time
+import uuid
 from supabase import create_client, Client
 
-# -------------------------------------------------------------------
-# CONFIGURAÇÃO DE PÁGINA
-# -------------------------------------------------------------------
-st.set_page_config(page_title="Studio Fitness - Gestão Completa", layout="wide", page_icon="🏋️‍♂️")
-
-SUPABASE_URL = st.secrets.get("SUPABASE_URL", "https://sua-url.supabase.co")
-SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "sua-chave-anon-publica")
-
+st.set_page_config(page_title="Studio Personal - Gestão", layout="wide")
 
 # -------------------------------------------------------------------
-# INICIALIZAÇÃO SEGURA (ISOLADA POR SESSÃO - SEM CACHE GLOBAL)
+# INICIALIZAÇÃO SUPABASE
 # -------------------------------------------------------------------
+SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
+SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "")
+
 def get_supabase_client() -> Client:
-    """Instancia o Supabase no st.session_state individual de cada usuário."""
-    if "supabase" not in st.session_state:
-        st.session_state.supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    return st.session_state.supabase
-
+    if "supabase_client" not in st.session_state:
+        st.session_state.supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    return st.session_state.supabase_client
 
 # -------------------------------------------------------------------
-# AUTENTICAÇÃO
+# ROTEAMENTO PÁGINA PÚBLICA (PAR-Q)
 # -------------------------------------------------------------------
-def login_personal():
-    st.title("🏋️ Studio Fitness - Acesso do Personal")
-    with st.form("form_login", clear_on_submit=False):
+query_params = st.query_params
+if "token" in query_params:
+    token = query_params["token"]
+    st.title("📋 Questionário PAR-Q")
+    st.write("Por favor, responda ao questionário antes de iniciar seus treinos.")
+
+    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    res = client.table("alunos").select("*").eq("parq_token", token).execute()
+    
+    if not res.data:
+        st.error("Link inválido ou não encontrado.")
+        st.stop()
+        
+    aluno = res.data[0]
+    expira_em = datetime.fromisoformat(aluno["parq_expires_at"].replace("Z", "+00:00"))
+    
+    if datetime.now().astimezone() > expira_em:
+        st.error("Este link do PAR-Q expirou. Solicite um novo ao seu Personal Trainer.")
+        st.stop()
+
+    if aluno.get("parq_status") == "Concluído":
+        st.success("Obrigado! Você já respondeu este questionário.")
+        st.stop()
+
+    st.subheader(f"Olá, {aluno['nome']}!")
+    
+    perguntas = [
+        "1. Seu médico já disse que você possui algum problema de coração e que só deve realizar atividade física supervisionada?",
+        "2. Você sente dores no peito quando pratica atividade física?",
+        "3. No último mês, você sentiu dor no peito quando não estava praticando atividade física?",
+        "4. Você apresenta perda de balanço devido a tontura ou desmaio?",
+        "5. Você tem algum problema ósseo ou articular que poderia ser agravado pela atividade física?",
+        "6. Seu médico prescreve medicamentos para pressão alta ou problema cardíaco?",
+        "7. Sabe de alguma outra razão pela qual você não deve praticar atividade física?"
+    ]
+
+    respostas = {}
+    with st.form("parq_form"):
+        for idx, q in enumerate(perguntas):
+            respostas[f"q{idx+1}"] = st.radio(q, ["Não", "Sim"], index=0)
+        
+        obs = st.text_area("Observações de saúde adicionais (opcional):")
+        submitted = st.form_submit_button("Enviar Respostas")
+
+        if submitted:
+            tem_restricao = any(r == "Sim" for r in respostas.values())
+            respostas["observacoes"] = obs
+            
+            client.table("alunos").update({
+                "parq_status": "Concluído",
+                "parq_respostas": respostas,
+                "tem_restricao_saude": tem_restricao,
+                "parq_respondido_em": datetime.now().isoformat()
+            }).eq("id", aluno["id"]).execute()
+
+            st.success("Questionário enviado com sucesso!")
+            st.experimental_rerun()
+
+    st.stop()
+
+# -------------------------------------------------------------------
+# ÁREA PRIVADA (PERSONAL TRAINER)
+# -------------------------------------------------------------------
+supabase = get_supabase_client()
+
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+if not st.session_state.user:
+    st.title("🔐 Login - Studio Personal")
+    tab_login, tab_cadastro = st.tabs(["Entrar", "Criar Conta"])
+    
+    with tab_login:
         email = st.text_input("E-mail")
         senha = st.text_input("Senha", type="password")
-        btn_login = st.form_submit_button("Entrar no Sistema")
-
-        if btn_login:
+        if st.button("Entrar"):
             try:
-                client = get_supabase_client()
-                resposta = client.auth.sign_in_with_password({"email": email, "password": senha})
-                if resposta.user:
-                    st.session_state.usuario_logado = resposta.user
-                    st.success("Acesso autorizado!")
-                    st.rerun()
-            except Exception:
-                st.error("E-mail ou senha inválidos.")
+                res = supabase.auth.sign_in_with_password({"email": email, "password": senha})
+                st.session_state.user = res.user
+                st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Erro ao entrar: {e}")
 
-
-def logout_personal():
-    client = get_supabase_client()
-    try:
-        client.auth.sign_out()
-    except Exception:
-        pass
-    if "usuario_logado" in st.session_state:
-        del st.session_state.usuario_logado
-    st.rerun()
-
+    with tab_cadastro:
+        novo_email = st.text_input("E-mail para Cadastro")
+        nova_senha = st.text_input("Senha para Cadastro", type="password")
+        if st.button("Cadastrar"):
+            try:
+                res = supabase.auth.sign_up({"email": novo_email, "password": nova_senha})
+                st.success("Conta criada! Faça login.")
+            except Exception as e:
+                st.error(f"Erro ao cadastrar: {e}")
+    st.stop()
 
 # -------------------------------------------------------------------
-# FUNÇÃO AUXILIAR: GERAR TOKEN SEGURO DO PAR-Q
+# MENU PRINCIPAL DO PERSONAL
 # -------------------------------------------------------------------
-def gerar_token_parq(aluno_id: str) -> str:
-    """Gera UUID v4 completo (36 caracteres) e validade de 72 horas."""
-    token_seguro = str(uuid.uuid4())
-    data_expiracao = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
+user_id = st.session_state.user.id
+
+st.sidebar.title("🏋️ Studio Manager")
+if st.sidebar.button("Sair / Logout"):
+    supabase.auth.sign_out()
+    st.session_state.user = None
+    st.experimental_rerun()
+
+menu = st.sidebar.radio("Navegação", ["📅 Calendário & Presença", "👤 Alunos & PAR-Q", "🏋️ Fichas de Treino", "💰 Financeiro & Hora-Aula"])
+
+# -------------------------------------------------------------------
+# 1. CALENDÁRIO, PRESENÇA, FALTA E HORA-AULA
+# -------------------------------------------------------------------
+if menu == "📅 Calendário & Presença":
+    st.header("📅 Agenda de Aulas & Controle de Presença")
     
-    client = get_supabase_client()
-    client.table("alunos").update({
-        "parq_token": token_seguro,
-        "parq_expires_at": data_expiracao
-    }).eq("id", aluno_id).execute()
-    
-    return token_seguro
+    # Busca alunos
+    alunos_res = supabase.table("alunos").select("id, nome, valor_hora_aula").eq("user_id", user_id).execute()
+    dict_alunos = {a["nome"]: a for a in alunos_res.data} if alunos_res.data else {}
 
+    col_form, col_cal = st.columns([1, 2])
+
+    with col_form:
+        st.subheader("➕ Agendar Nova Aula")
+        if dict_alunos:
+            aluno_sel = st.selectbox("Aluno", list(dict_alunos.keys()))
+            data_aula = st.date_input("Data", datetime.now())
+            hora_aula = st.time_input("Horário", time(8, 0))
+            tipo_aula = st.selectbox("Tipo", ["Personal Training", "Avaliação Física", "Consultoria"])
+            
+            aluno_obj = dict_alunos[aluno_sel]
+            valor_sugerido = float(aluno_obj.get("valor_hora_aula", 0.0))
+            valor_aula = st.number_input("Valor da Aula (R$)", value=valor_sugerido, step=10.0)
+
+            if st.button("Confirmar Agendamento"):
+                dt_combinada = datetime.combine(data_aula, hora_aula).isoformat()
+                supabase.table("agendamentos").insert({
+                    "aluno_id": aluno_obj["id"],
+                    "data_hora": dt_combinada,
+                    "tipo": tipo_aula,
+                    "status": "Agendado",
+                    "valor_aula": valor_aula,
+                    "user_id": user_id
+                }).execute()
+                st.success("Aula agendada!")
+                st.experimental_rerun()
+        else:
+            st.info("Cadastre alunos primeiro para agendar aulas.")
+
+    with col_cal:
+        st.subheader("📋 Aulas Agendadas")
+        filtro_data = st.date_input("Filtrar por Dia", datetime.now())
+        
+        inicio_dia = datetime.combine(filtro_data, time.min).isoformat()
+        fim_dia = datetime.combine(filtro_data, time.max).isoformat()
+
+        agendamentos = supabase.table("agendamentos")\
+            .select("*, alunos(nome)")\
+            .eq("user_id", user_id)\
+            .gte("data_hora", inicio_dia)\
+            .lte("data_hora", fim_dia)\
+            .order("data_hora")\
+            .execute()
+
+        if agendamentos.data:
+            for item in agendamentos.data:
+                dt = datetime.fromisoformat(item["data_hora"].replace("Z", ""))
+                aluno_nome = item["alunos"]["nome"] if item.get("alunos") else "Aluno Desconhecido"
+                status_atual = item["status"]
+                
+                # Definir cor conforme status
+                cor = "🔵" if status_atual == "Agendado" else ("🟢" if status_atual == "Presença" else ("🔴" if status_atual == "Falta" else "🟡"))
+
+                with st.expander(f"{cor} {dt.strftime('%H:%M')} - {aluno_nome} ({status_atual})"):
+                    st.write(f"**Tipo:** {item['tipo']} | **Valor:** R$ {item['valor_aula']:.2f}")
+                    
+                    c1, c2, c3, c4 = st.columns(4)
+                    if c1.button("🟢 Presença", key=f"p_{item['id']}"):
+                        supabase.table("agendamentos").update({"status": "Presença"}).eq("id", item["id"]).execute()
+                        st.experimental_rerun()
+
+                    if c2.button("🔴 Falta", key=f"f_{item['id']}"):
+                        supabase.table("agendamentos").update({"status": "Falta"}).eq("id", item["id"]).execute()
+                        st.experimental_rerun()
+
+                    if c3.button("🟡 Desmarcada", key=f"d_{item['id']}"):
+                        supabase.table("agendamentos").update({"status": "Desmarcada"}).eq("id", item["id"]).execute()
+                        st.experimental_rerun()
+
+                    if c4.button("🗑️ Cancelar", key=f"del_{item['id']}"):
+                        supabase.table("agendamentos").delete().eq("id", item["id"]).execute()
+                        st.experimental_rerun()
+        else:
+            st.write("Nenhuma aula agendada para esta data.")
 
 # -------------------------------------------------------------------
-# MÓDULOS DO PAINEL DO PERSONAL
+# 2. ALUNOS & HORA-AULA & PAR-Q
 # -------------------------------------------------------------------
-
-def modulo_alunos(client, user_id):
-    st.header("📋 Gestão de Alunos & PAR-Q")
+elif menu == "👤 Alunos & PAR-Q":
+    st.header("👤 Gestão de Alunos & PAR-Q")
     
-    # Cadastrar Aluno
     with st.expander("➕ Cadastrar Novo Aluno", expanded=False):
-        with st.form("form_novo_aluno", clear_on_submit=True):
-            nome = st.text_input("Nome Completo")
+        with st.form("form_aluno"):
+            nome = st.text_input("Nome Completo*")
             email = st.text_input("E-mail")
             telefone = st.text_input("Telefone / WhatsApp")
-            objetivo = st.selectbox("Objetivo Principal", ["Hipertrofia", "Emagrecimento", "Condicionamento", "Reabilitação"])
+            objetivo = st.text_input("Objetivo (ex: Hipertrofia, Emagrecimento)")
+            valor_hora = st.number_input("Valor da Hora-Aula (R$)", value=80.0, step=5.0)
             
             if st.form_submit_button("Salvar Aluno"):
                 if nome:
-                    client.table("alunos").insert({
+                    supabase.table("alunos").insert({
                         "nome": nome,
                         "email": email,
                         "telefone": telefone,
                         "objetivo": objetivo,
+                        "valor_hora_aula": valor_hora,
                         "user_id": user_id
                     }).execute()
-                    st.success(f"Aluno {nome} cadastrado!")
-                    st.rerun()
+                    st.success("Aluno cadastrado!")
+                    st.experimental_rerun()
+                else:
+                    st.error("O campo Nome é obrigatório.")
 
     # Listagem de Alunos
-    res = client.table("alunos").select("*").eq("user_id", user_id).order("nome").execute()
-    alunos = res.data if res else []
-
-    if not alunos:
-        st.info("Nenhum aluno cadastrado.")
-        return
-
-    for aluno in alunos:
-        with st.expander(f"👤 {aluno['nome']} | Telefone: {aluno.get('telefone', 'N/A')}"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.write(f"**E-mail:** {aluno.get('email', 'N/A')}")
-                st.write(f"**Objetivo:** {aluno.get('objetivo', 'N/A')}")
-                st.write(f"**Status PAR-Q:** `{aluno.get('parq_status', 'Pendente')}`")
-
-            with col2:
-                # Gerador de Link do PAR-Q
-                if st.button("🔄 Gerar Link de Avaliação PAR-Q", key=f"parq_{aluno['id']}"):
-                    token = gerar_token_parq(aluno['id'])
-                    url_base = st.secrets.get("BASE_URL", "http://localhost:8501")
-                    link = f"{url_base}/?token={token}"
-                    st.success("Link gerado (Válido por 72h):")
-                    st.code(link, language="text")
-
-            # Exibir respostas do PAR-Q se respondido
-            if aluno.get("parq_status") == "Concluído":
-                st.markdown("---")
-                st.subheader("🩺 Respostas do PAR-Q / Saúde")
-                if aluno.get("tem_restricao_saude"):
-                    st.warning("⚠️ O aluno respondeu 'SIM' a uma ou mais perguntas de saúde.")
-                else:
-                    st.success("✅ O aluno respondeu 'NÃO' a todas as restrições.")
+    alunos = supabase.table("alunos").select("*").eq("user_id", user_id).order("nome").execute()
+    if alunos.data:
+        for a in alunos.data:
+            col_info, col_parq = st.columns([2, 1])
+            with col_info:
+                st.markdown(f"### {a['nome']}")
+                st.write(f"📞 {a.get('telefone', 'N/A')} | ✉️ {a.get('email', 'N/A')}")
+                st.write(f"🎯 **Objetivo:** {a.get('objetivo', 'N/A')} | 💵 **Hora-Aula:** R$ {a.get('valor_hora_aula', 0.0):.2f}")
                 
-                respostas = aluno.get("parq_respostas", {})
-                if respostas.get("observacoes"):
-                    st.write(f"**Detalhamento:** {respostas.get('observacoes')}")
-
-
-def modulo_agendamentos(client, user_id):
-    st.header("📅 Agenda de Treinos e Aulas")
-    
-    # Buscar lista de alunos para o selectbox
-    res_alunos = client.table("alunos").select("id, nome").eq("user_id", user_id).execute()
-    alunos_dict = {a["nome"]: a["id"] for a in res_alunos.data} if res_alunos.data else {}
-
-    col_form, col_lista = st.columns([1, 2])
-
-    with col_form:
-        st.subheader("Novo Agendamento")
-        if not alunos_dict:
-            st.warning("Cadastre ao menos um aluno para agendar.")
-        else:
-            with st.form("form_agendamento", clear_on_submit=True):
-                aluno_nome = st.selectbox("Aluno", list(alunos_dict.keys()))
-                data_agendamento = st.date_input("Data")
-                hora_agendamento = st.time_input("Horário")
-                tipo_treino = st.text_input("Tipo de Treino", value="Personal Training")
+            with col_parq:
+                status_parq = a.get("parq_status", "Pendente")
+                st.write(f"**PAR-Q:** {status_parq}")
                 
-                if st.form_submit_button("Agendar Horário"):
-                    data_hora = datetime.combine(data_agendamento, hora_agendamento).isoformat()
-                    client.table("agendamentos").insert({
-                        "aluno_id": alunos_dict[aluno_nome],
-                        "data_hora": data_hora,
-                        "tipo": tipo_treino,
-                        "status": "Confirmado",
-                        "user_id": user_id
-                    }).execute()
-                    st.success("Agendamento criado!")
-                    st.rerun()
+                if a.get("tem_restricao_saude"):
+                    st.error("⚠️ Possui restrição de saúde!")
 
-    with col_lista:
-        st.subheader("Próximos Treinos")
-        res_agenda = client.table("agendamentos").select("*, alunos(nome)").eq("user_id", user_id).order("data_hora").execute()
-        agendamentos = res_agenda.data if res_agenda else []
+                if st.button("🔗 Gerar Link PAR-Q", key=f"link_{a['id']}"):
+                    token = str(uuid.uuid4())
+                    expiracao = (datetime.now() + timedelta(hours=72)).isoformat()
+                    
+                    supabase.table("alunos").update({
+                        "parq_token": token,
+                        "parq_expires_at": expiracao,
+                        "parq_status": "Aguardando Resposta"
+                    }).eq("id", a["id"]).execute()
+                    
+                    st.success("Link gerado com validade de 72h!")
+                    st.code(f"https://seu-app.streamlit.app/?token={token}")
+            st.divider()
 
-        if not agendamentos:
-            st.info("Nenhum treino agendado.")
-        else:
-            for item in agendamentos:
-                nome_aluno = item.get("alunos", {}).get("nome", "Aluno") if item.get("alunos") else "Aluno"
-                dh = datetime.fromisoformat(item["data_hora"])
-                
-                c1, c2, c3 = st.columns([2, 2, 1])
-                c1.write(f"**{nome_aluno}** ({item.get('tipo')})")
-                c2.write(dh.strftime("%d/%m/%Y às %H:%M"))
-                if c3.button("Cancelar", key=f"del_ag_{item['id']}"):
-                    client.table("agendamentos").delete().eq("id", item['id']).execute()
-                    st.rerun()
-
-
-def modulo_treinos(client, user_id):
+# -------------------------------------------------------------------
+# 3. FICHAS DE TREINO
+# -------------------------------------------------------------------
+elif menu == "🏋️ Fichas de Treino":
     st.header("🏋️ Prescrição de Treinos")
     
-    res_alunos = client.table("alunos").select("id, nome").eq("user_id", user_id).execute()
-    alunos_dict = {a["nome"]: a["id"] for a in res_alunos.data} if res_alunos.data else {}
+    alunos_res = supabase.table("alunos").select("id, nome").eq("user_id", user_id).execute()
+    if alunos_res.data:
+        dict_alunos = {a["nome"]: a["id"] for a in alunos_res.data}
+        aluno_sel = st.selectbox("Selecione o Aluno", list(dict_alunos.keys()))
+        aluno_id = dict_alunos[aluno_sel]
 
-    if not alunos_dict:
-        st.info("Cadastre alunos para prescrever fichas de treino.")
-        return
-
-    aluno_sel = st.selectbox("Selecione o Aluno para Ver/Criar Treinos", list(alunos_dict.keys()))
-    aluno_id = alunos_dict[aluno_sel]
-
-    st.subheader(f"Ficha de Treino - {aluno_sel}")
-    
-    with st.form("form_treino", clear_on_submit=True):
-        nome_treino = st.text_input("Nome da Ficha (ex: Treino A - Peito e Tríceps)")
-        descricao_exercicios = st.text_area("Exercícios, Séries e Repetições (ex: Supino Reto 4x10, Tríceps Pulley 3x12)")
+        tab_nova, tab_ver = st.tabs(["➕ Criar Ficha", "📋 Fichas Ativas"])
         
-        if st.form_submit_button("Salvar Ficha de Treino"):
-            if nome_treino and descricao_exercicios:
-                client.table("treinos").insert({
-                    "aluno_id": aluno_id,
-                    "nome_ficha": nome_treino,
-                    "detalhes": descricao_exercicios,
-                    "user_id": user_id
-                }).execute()
-                st.success("Treino salvo com sucesso!")
-                st.rerun()
+        with tab_nova:
+            nome_ficha = st.text_input("Nome da Ficha (ex: Treino A - Peito e Tríceps)")
+            detalhes = st.text_area("Exercícios, Séries e Repetições", height=150)
+            if st.button("Salvar Ficha"):
+                if nome_ficha and detalhes:
+                    supabase.table("treinos").insert({
+                        "aluno_id": aluno_id,
+                        "nome_ficha": nome_ficha,
+                        "detalhes": detalhes,
+                        "user_id": user_id
+                    }).execute()
+                    st.success("Ficha salva!")
+                    st.experimental_rerun()
 
-    # Listar treinos cadastrados
-    res_treinos = client.table("treinos").select("*").eq("aluno_id", aluno_id).execute()
-    fichas = res_treinos.data if res_treinos else []
+        with tab_ver:
+            fichas = supabase.table("treinos").select("*").eq("aluno_id", aluno_id).execute()
+            if fichas.data:
+                for f in fichas.data:
+                    st.subheader(f["nome_ficha"])
+                    st.text(f["detalhes"])
+                    if st.button("🗑️ Excluir Ficha", key=f"del_ficha_{f['id']}"):
+                        supabase.table("treinos").delete().eq("id", f["id"]).execute()
+                        st.experimental_rerun()
+            else:
+                st.info("Nenhuma ficha cadastrada para este aluno.")
+    else:
+        st.info("Cadastre alunos para prescrever treinos.")
 
-    for f in fichas:
-        with st.expander(f"📌 {f['nome_ficha']}"):
-            st.text(f["detalhes"])
-            if st.button("Excluir Ficha", key=f"del_tr_{f['id']}"):
-                client.table("treinos").delete().eq("id", f['id']).execute()
-                st.rerun()
+# -------------------------------------------------------------------
+# 4. FINANCEIRO & RESUMO DE HORA-AULA
+# -------------------------------------------------------------------
+elif menu == "💰 Financeiro & Hora-Aula":
+    st.header("💰 Balanço Financeiro & Relatório de Aulas")
 
-
-def modulo_financeiro(client, user_id):
-    st.header("💰 Gestão Financeira do Studio")
+    # Resumo de Aulas no Mês (Presença vs Faltas)
+    st.subheader("📊 Relatório de Aulas Realizadas (Mês Atual)")
     
-    res_alunos = client.table("alunos").select("id, nome").eq("user_id", user_id).execute()
-    alunos_dict = {a["nome"]: a["id"] for a in res_alunos.data} if res_alunos.data else {}
+    agendamentos_mes = supabase.table("agendamentos")\
+        .select("status, valor_aula, alunos(nome)")\
+        .eq("user_id", user_id)\
+        .execute()
 
-    col1, col2 = st.columns([1, 2])
+    if agendamentos_mes.data:
+        df_aulas = pd.DataFrame(agendamentos_mes.data)
+        
+        presencas = df_aulas[df_aulas["status"] == "Presença"]
+        faltas = df_aulas[df_aulas["status"] == "Falta"]
+        desmarcadas = df_aulas[df_aulas["status"] == "Desmarcada"]
+        
+        faturamento_aulas = presencas["valor_aula"].sum()
 
-    with col1:
-        st.subheader("Registrar Lançamento")
-        with st.form("form_financeiro", clear_on_submit=True):
-            aluno_nome = st.selectbox("Aluno (Opcional)", ["Nenhum"] + list(alunos_dict.keys()))
-            descricao = st.text_input("Descrição (ex: Mensalidade Plano Anual)")
-            valor = st.number_input("Valor (R$)", min_value=0.0, step=10.0)
-            tipo = st.radio("Tipo", ["Receita", "Despesa"])
-            
-            if st.form_submit_button("Registrar Transação"):
-                aluno_id = alunos_dict[aluno_nome] if aluno_nome != "Nenhum" else None
-                client.table("transacoes").insert({
-                    "descricao": descricao,
-                    "valor": valor if tipo == "Receita" else -valor,
-                    "aluno_id": aluno_id,
-                    "user_id": user_id,
-                    "data_pagamento": datetime.now(timezone.utc).isoformat()
-                }).execute()
-                st.success("Lançamento efetuado!")
-                st.rerun()
-
-    with col2:
-        st.subheader("Histórico Financeiro")
-        res_fin = client.table("transacoes").select("*, alunos(nome)").eq("user_id", user_id).order("data_pagamento", desc=True).execute()
-        transacoes = res_fin.data if res_fin else []
-
-        if transacoes:
-            total_receita = sum(t["valor"] for t in transacoes if t["valor"] > 0)
-            total_despesa = sum(t["valor"] for t in transacoes if t["valor"] < 0)
-            
-            kpi1, kpi2, kpi3 = st.columns(3)
-            kpi1.metric("Receitas", f"R$ {total_receita:.2f}")
-            kpi2.metric("Despesas", f"R$ {abs(total_despesa):.2f}")
-            kpi3.metric("Saldo", f"R$ {(total_receita + total_despesa):.2f}")
-
-            st.divider()
-            for t in transacoes:
-                aluno_txt = f" - {t['alunos']['nome']}" if t.get("alunos") else ""
-                sinal = "🟢" if t["valor"] > 0 else "🔴"
-                dt = datetime.fromisoformat(t["data_pagamento"]).strftime("%d/%m/%Y")
-                st.write(f"{sinal} **{dt}** | {t['descricao']}{aluno_txt} | **R$ {abs(t['valor']):.2f}**")
-
-
-# -------------------------------------------------------------------
-# PAINEL PRINCIPAL DO PERSONAL (COM NAVEGAÇÃO POR ABAS)
-# -------------------------------------------------------------------
-def pagina_painel_personal():
-    client = get_supabase_client()
-    user = st.session_state.usuario_logado
-
-    col_h1, col_h2 = st.columns([4, 1])
-    with col_h1:
-        st.title("🏋️ Studio Fitness Manager")
-        st.caption(f"Sessão ativa: {user.email}")
-    with col_h2:
-        if st.button("🔴 Encerrar Sessão"):
-            logout_personal()
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Aulas Realizadas", len(presencas))
+        m2.metric("Faltas", len(faltas))
+        m3.metric("Desmarcadas", len(desmarcadas))
+        m4.metric("Total Aulas (R$)", f"R$ {faturamento_aulas:.2f}")
 
     st.divider()
 
-    # Abas principais da aplicação
-    tab_alunos, tab_agenda, tab_treinos, tab_fin = st.tabs([
-        "📋 Alunos & PAR-Q", 
-        "📅 Agendamentos", 
-        "🏋️ Treinos", 
-        "💰 Financeiro"
-    ])
-
-    with tab_alunos:
-        modulo_alunos(client, user.id)
-
-    with tab_agenda:
-        modulo_agendamentos(client, user.id)
-
-    with tab_treinos:
-        modulo_treinos(client, user.id)
-
-    with tab_fin:
-        modulo_financeiro(client, user.id)
-
-
-# -------------------------------------------------------------------
-# PÁGINA PÚBLICA DO ALUNO (PAR-Q VIA TOKEN)
-# -------------------------------------------------------------------
-def pagina_parq_aluno(token_url: str):
-    st.title("📋 Questionário PAR-Q")
-    client = get_supabase_client()
+    # Lançamentos Manuais de Caixa
+    st.subheader("💵 Caixa Geral (Receitas e Despesas)")
     
-    res = client.table("alunos").select("*").eq("parq_token", token_url).execute()
-    if not res.data:
-        st.error("🚫 Link inválido ou expirado. Peça um novo acesso ao seu Personal Trainer.")
-        return
-
-    aluno = res.data[0]
-
-    if aluno.get("parq_expires_at"):
-        if datetime.now(timezone.utc) > datetime.fromisoformat(aluno["parq_expires_at"]):
-            st.error("⏰ Este link expirou por medidas de segurança. Peça um novo link ao seu Personal Trainer.")
-            return
-
-    if aluno.get("parq_status") == "Concluído":
-        st.success(f"Obrigado, {aluno['nome']}! Suas respostas já foram gravadas.")
-        return
-
-    st.info(f"Olá, **{aluno['nome']}**! Preencha as perguntas de saúde abaixo:")
-
-    with st.form("form_parq_publico"):
-        p1 = st.checkbox("1. Possui algum problema de coração diagnosticado por médico?")
-        p2 = st.checkbox("2. Sente dores no peito durante a prática de atividade física?")
-        p3 = st.checkbox("3. Sentiu dores no peito no último mês sem estar praticando exercícios?")
-        p4 = st.checkbox("4. Apresenta tonturas frequentes ou perda de consciência?")
-        p5 = st.checkbox("5. Possui problema ósseo ou articular que pode piorar com o exercício?")
-        p6 = st.checkbox("6. Toma medicamentos para pressão alta ou coração?")
-        p7 = st.checkbox("7. Existe alguma outra razão médica para não praticar exercícios?")
-        
-        obs = st.text_area("Se respondeu SIM a algo, detalhe aqui:")
-
-        if st.form_submit_button("Enviar Avaliação"):
-            tem_restricao = any([p1, p2, p3, p4, p5, p6, p7])
-            client.table("alunos").update({
-                "parq_status": "Concluído",
-                "parq_respostas": {"p1": p1, "p2": p2, "p3": p3, "p4": p4, "p5": p5, "p6": p6, "p7": p7, "observacoes": obs},
-                "tem_restricao_saude": tem_restricao,
-                "parq_respondido_em": datetime.now(timezone.utc).isoformat()
-            }).eq("id", aluno["id"]).execute()
+    col_lancar, col_kpi = st.columns([1, 1])
+    
+    with col_lancar:
+        with st.form("form_transacao"):
+            desc = st.text_input("Descrição (ex: Mensalidade, Equipamento)")
+            val = st.number_input("Valor (R$)", value=0.0, step=10.0)
+            tipo_trans = st.radio("Tipo", ["Receita", "Despesa"], horizontal=True)
             
-            st.success("Respostas salvas com sucesso!")
-            st.rerun()
+            if st.form_submit_button("Registrar no Caixa"):
+                valor_final = val if tipo_trans == "Receita" else -val
+                supabase.table("transacoes").insert({
+                    "descricao": desc,
+                    "valor": valor_final,
+                    "user_id": user_id
+                }).execute()
+                st.success("Lançamento efetuado!")
+                st.experimental_rerun()
 
+    with col_kpi:
+        trans = supabase.table("transacoes").select("*").eq("user_id", user_id).execute()
+        if trans.data:
+            df_t = pd.DataFrame(trans.data)
+            rec = df_t[df_t["valor"] > 0]["valor"].sum()
+            desp = df_t[df_t["valor"] < 0]["valor"].sum()
+            saldo = rec + desp
 
-# -------------------------------------------------------------------
-# ROTEADOR DA APLICAÇÃO
-# -------------------------------------------------------------------
-def main():
-    token_parq = st.query_params.get("token")
-    if token_parq:
-        pagina_parq_aluno(token_parq)
-    else:
-        if "usuario_logado" not in st.session_state:
-            login_personal()
-        else:
-            pagina_painel_personal()
-
-if __name__ == "__main__":
-    main()
+            st.metric("Receitas Totais", f"R$ {rec:.2f}")
+            st.metric("Despesas Totais", f"R$ {abs(desp):.2f}")
+            st.metric("Saldo Líquido", f"R$ {saldo:.2f}")
