@@ -95,7 +95,7 @@ if token_aluno:
 
 
 # ==========================================
-# ÁREA DO PERSONAL TRAINER (SISTEMA DE GESTÃO)
+# ÁREA DO PERSONAL TRAINER
 # ==========================================
 if "user" not in st.session_state: st.session_state.user = None
 if "session" not in st.session_state: st.session_state.session = None
@@ -113,7 +113,7 @@ def carregar_alunos(user_id):
 hoje = date.today()
 
 # ------------------------------------------
-# TELA DE LOGIN DO PERSONAL
+# TELA DE LOGIN
 # ------------------------------------------
 if st.session_state.user is None:
     st.title("🏋️ Assistente do Personal")
@@ -391,16 +391,16 @@ else:
                     st.rerun()
 
     # ------------------------------------------
-    # 3. ALUNOS & CRM (INCLUINDO GESTÃO DE PAR-Q)
+    # 3. ALUNOS & CRM (EDIÇÃO COMPLETA DE PERFIL)
     # ------------------------------------------
     elif menu == "👤 Alunos & CRM":
         st.title("👤 Gestão de Alunos e PAR-Q")
 
-        # Configuração da URL Base do App para gerar links
-        base_app_url = st.text_input("🔗 URL Base do seu App Streamlit (Ex: https://seuapp.streamlit.app):", value="https://meustudio.streamlit.app")
+        base_app_url = st.text_input("🔗 URL Base do seu App Streamlit:", value="https://meustudio.streamlit.app")
 
+        # --- SEÇÃO PAR-Q ---
         if alunos_todos:
-            st.markdown("### 📜 Lista de Alunos e PAR-Q")
+            st.markdown("### 📜 Status e PAR-Q dos Alunos")
             for al in alunos_todos:
                 st_parq = al.get("parq_status", "pendente")
                 
@@ -420,7 +420,6 @@ else:
                             st.warning("⚠️ PAR-Q Pendente")
 
                     with c_acao:
-                        # Botão para gerar token / enviar WhatsApp
                         token = al.get("parq_token")
                         if not token:
                             if st.button("🔑 Gerar Link", key=f"token_{al['id']}"):
@@ -439,9 +438,8 @@ else:
                             else:
                                 st.caption("Cadastre o telefone")
 
-                        # Expander para ver respostas se já assinado
                         if st_parq == "assinado":
-                            with st.expander("👁️ Ver Respostas do PAR-Q"):
+                            with st.expander("👁️ Ver Respostas"):
                                 resp = al.get("parq_respostas") or {}
                                 for k, v in resp.items():
                                     cor = "🔴" if v == "Sim" else "🟢"
@@ -449,36 +447,89 @@ else:
 
         st.divider()
 
-        with st.expander("✏️ Editar Valores / Dados Manuais do Aluno"):
-            mapa_edicao = {al["nome"]: al for al in alunos_todos}
-            if mapa_edicao:
-                aluno_ed = st.selectbox("Selecione o Aluno para Editar", list(mapa_edicao.keys()))
-                dados_ed = mapa_edicao[aluno_ed]
-                
-                with st.form("form_edicao_manual"):
-                    c_e1, c_e2 = st.columns(2)
-                    with c_e1:
-                        novo_valor_pacote = st.number_input("Valor do Pacote (R$)", value=float(dados_ed.get("valor_pacote") or 0.0), min_value=0.0)
-                        nova_presenca = st.number_input("Total de Presenças", value=int(dados_ed.get("presencas") or 0), min_value=0)
-                        novo_valor_pago = st.number_input("Valor Já Pago (R$)", value=float(dados_ed.get("valor_pago") or 0.0), min_value=0.0)
-                    with c_e2:
-                        novo_valor_aula = st.number_input("Valor Avulso (R$)", value=float(dados_ed.get("valor_aula") or 0.0), min_value=0.0)
-                        nova_falta = st.number_input("Total de Faltas", value=int(dados_ed.get("faltas") or 0), min_value=0)
-                        novas_aulas_rest = st.number_input("Aulas Restantes (Pacote)", value=int(dados_ed.get("aulas_restantes") or 0), min_value=0)
+        # --- SEÇÃO DE EDIÇÃO COMPLETA DE PERFIL ---
+        if alunos_todos:
+            with st.expander("✏️ Editar Perfil Completo do Aluno", expanded=False):
+                mapa_edicao = {al["nome"]: al for al in alunos_todos}
+                aluno_sel_nome = st.selectbox("Selecione o Aluno para Editar", list(mapa_edicao.keys()))
+                aluno_sel = mapa_edicao[aluno_sel_nome]
+
+                with st.form("form_editar_perfil_completo"):
+                    st.markdown("#### 👤 Dados Pessoais e Contato")
+                    f_nome = st.text_input("Nome Completo", value=aluno_sel.get("nome", ""))
+                    
+                    try:
+                        dt_nasc_val = datetime.strptime(aluno_sel["data_nascimento"], "%Y-%m-%d").date() if aluno_sel.get("data_nascimento") else hoje
+                    except:
+                        dt_nasc_val = hoje
                         
-                    if st.form_submit_button("💾 Salvar Alterações", type="primary"):
+                    col_p1, col_p2, col_p3 = st.columns(3)
+                    with col_p1:
+                        f_data_nasc = st.date_input("Data de Nascimento", value=dt_nasc_val, min_value=date(1930,1,1), max_value=hoje)
+                    with col_p2:
+                        f_telefone = st.text_input("WhatsApp", value=aluno_sel.get("telefone", ""))
+                    with col_p3:
+                        f_email = st.text_input("E-mail", value=aluno_sel.get("email", ""))
+
+                    col_p4, col_p5 = st.columns(2)
+                    with col_p4:
+                        f_cpf = st.text_input("CPF", value=aluno_sel.get("cpf", ""))
+                    with col_p5:
+                        f_status = st.selectbox("Status da Matrícula", ["Ativo", "Inativo", "Suspenso"], index=["Ativo", "Inativo", "Suspenso"].index(aluno_sel.get("status", "Ativo") if aluno_sel.get("status") in ["Ativo", "Inativo", "Suspenso"] else "Ativo"))
+
+                    st.markdown("#### 🚨 Contato de Emergência")
+                    col_e1, col_e2 = st.columns(2)
+                    with col_e1:
+                        f_emg_nome = st.text_input("Nome do Contato de Emergência", value=aluno_sel.get("contato_emergencia_nome", ""))
+                    with col_e2:
+                        f_emg_fone = st.text_input("Telefone de Emergência", value=aluno_sel.get("contato_emergencia_fone", ""))
+
+                    st.markdown("#### 🩺 Anamnese e Objetivos")
+                    f_restricoes = st.text_area("Restrições de Saúde / Lesões / Observações", value=aluno_sel.get("restricoes_saude", ""), help="Ex: Lesão no joelho esquerdo, hipertensão, etc.")
+                    
+                    col_o1, col_o2 = st.columns(2)
+                    with col_o1:
+                        f_objetivo = st.text_input("Objetivo Principal", value=aluno_sel.get("objetivo", ""), placeholder="Ex: Emagrecimento, Hipertrofia")
+                    with col_o2:
+                        f_nivel = st.selectbox("Nível de Experiência", ["Iniciante", "Intermediário", "Avançado"], index=["Iniciante", "Intermediário", "Avançado"].index(aluno_sel.get("nivel", "Iniciante") if aluno_sel.get("nivel") in ["Iniciante", "Intermediário", "Avançado"] else "Iniciante"))
+
+                    st.markdown("#### 💰 Plano e Frequência")
+                    col_f1, col_f2, col_f3 = st.columns(3)
+                    with col_f1:
+                        f_valor_pacote = st.number_input("Valor Pacote (R$)", value=float(aluno_sel.get("valor_pacote") or 0.0), min_value=0.0)
+                        f_presencas = st.number_input("Presenças", value=int(aluno_sel.get("presencas") or 0), min_value=0)
+                    with col_f2:
+                        f_valor_aula = st.number_input("Valor Avulso (R$)", value=float(aluno_sel.get("valor_aula") or 0.0), min_value=0.0)
+                        f_faltas = st.number_input("Faltas", value=int(aluno_sel.get("faltas") or 0), min_value=0)
+                    with col_f3:
+                        f_valor_pago = st.number_input("Valor Já Pago (R$)", value=float(aluno_sel.get("valor_pago") or 0.0), min_value=0.0)
+                        f_aulas_restantes = st.number_input("Aulas Restantes", value=int(aluno_sel.get("aulas_restantes") or 0), min_value=0)
+
+                    if st.form_submit_button("💾 Salvar Perfil Completo", type="primary", use_container_width=True):
                         preparar_cliente()
                         supabase.table("alunos").update({
-                            "valor_pacote": novo_valor_pacote,
-                            "valor_aula": novo_valor_aula,
-                            "presencas": nova_presenca,
-                            "faltas": nova_falta,
-                            "valor_pago": novo_valor_pago,
-                            "aulas_restantes": novas_aulas_rest
-                        }).eq("id", dados_ed["id"]).execute()
-                        st.success("Valores atualizados manualmente com sucesso!")
+                            "nome": f_nome,
+                            "data_nascimento": f_data_nasc.isoformat(),
+                            "telefone": f_telefone,
+                            "email": f_email,
+                            "cpf": f_cpf,
+                            "status": f_status,
+                            "contato_emergencia_nome": f_emg_nome,
+                            "contato_emergencia_fone": f_emg_fone,
+                            "restricoes_saude": f_restricoes,
+                            "objetivo": f_objetivo,
+                            "nivel": f_nivel,
+                            "valor_pacote": f_valor_pacote,
+                            "valor_aula": f_valor_aula,
+                            "presencas": f_presencas,
+                            "faltas": f_faltas,
+                            "valor_pago": f_valor_pago,
+                            "aulas_restantes": f_aulas_restantes
+                        }).eq("id", aluno_sel["id"]).execute()
+                        st.success("Perfil do aluno atualizado com sucesso!")
                         st.rerun()
 
+        # --- SEÇÃO CADASTRO ---
         with st.expander("➕ Cadastrar Novo Aluno"):
             with st.form("form_novo"):
                 nome = st.text_input("Nome")
