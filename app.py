@@ -279,7 +279,12 @@ else:
                     with col_acao:
                         if saldo > 0:
                             msg = f"Fala {al['nome']}! Tudo bem? Passando só para avisar que o seu pacote de aulas venceu. Segue a chave para renovação: {st.session_state.chave_pix}. Valeu!"
-                            tel = re.sub(r'\D', '', str(al.get("telefone") or ""))
+                            
+                            # CORREÇÃO SEGURA DO TELEFONE
+                            telefone_salvo = al.get("telefone")
+                            telefone_texto = str(telefone_salvo) if telefone_salvo is not None else ""
+                            tel = re.sub(r'\D', '', telefone_texto)
+                            
                             if tel:
                                 link_whats = f"https://wa.me/55{tel}?text={urllib.parse.quote(msg)}"
                                 st.markdown(f"<a href='{link_whats}' target='_blank'><button style='background-color:#25D366; color:white; border:none; padding:8px; border-radius:5px; width:100%;'>📱 Cobrar WhatsApp</button></a>", unsafe_allow_html=True)
