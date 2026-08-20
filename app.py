@@ -88,8 +88,8 @@ else:
     with st.sidebar:
         menu = option_menu(
             "Navegação",
-            ["🔔 Assistente (Resumo)", "🔴 Aula Agora (Sessão)", "📅 Agenda & Locais", "👤 Alunos & CRM", "💰 Financeiro Geral"],
-            icons=["bell", "play-circle", "calendar-range", "people", "cash-coin"],
+            ["📊 Dashboard", "🔔 Assistente (Resumo)", "🔴 Sessão Ativa", "📅 Agenda", "👤 Alunos & CRM", "💰 Financeiro"],
+            icons=["bar-chart", "bell", "play-circle", "calendar-range", "people", "cash-coin"],
             default_index=0
         )
         if st.button("🚪 Sair", use_container_width=True):
@@ -98,9 +98,62 @@ else:
             st.rerun()
 
     # ------------------------------------------
+    # 0. DASHBOARD GERAL
+    # ------------------------------------------
+    if menu == "📊 Dashboard":
+        st.title("📊 Painel de Controle (Dashboard)")
+        st.caption("Visão geral do seu estúdio e alunos")
+
+        total_alunos = len(alunos_todos)
+        total_treinos_dados = sum([(al.get("presencas") or 0) for al in alunos_todos])
+        
+        total_pago = 0.0
+        total_pendente = 0.0
+
+        for al in alunos_todos:
+            pres = al.get("presencas") or 0
+            fal = al.get("faltas") or 0
+            devido = float(al.get("valor_pacote") or 0.0) if al.get("tipo_cobranca") == "pacote" else ((pres + fal) * float(al.get("valor_aula") or 0.0))
+            pago = float(al.get("valor_pago") or 0.0)
+            
+            saldo = devido - pago
+            if saldo > 0:
+                total_pendente += saldo
+            
+            total_pago += pago
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total de Alunos", total_alunos)
+        c2.metric("Treinos Realizados", f"{total_treinos_dados} aulas")
+        c3.metric("Caixa Atual (Recebido)", f"R$ {total_pago:.2f}")
+        c4.metric("Valores Pendentes", f"R$ {total_pendente:.2f}", delta="-A receber", delta_color="inverse")
+
+        st.divider()
+        st.markdown("### Perfil Rápido dos Alunos")
+        if not alunos_todos:
+            st.info("Cadastre alunos para ver as estatísticas.")
+        else:
+            col_list1, col_list2 = st.columns(2)
+            with col_list1:
+                st.markdown("**🏃‍♂️ Maiores Frequências (Top 5)**")
+                # Ordena alunos por mais presenças
+                alunos_top = sorted(alunos_todos, key=lambda x: x.get("presencas") or 0, reverse=True)[:5]
+                for al in alunos_top:
+                    st.write(f"- {al['nome']} ({al.get('presencas') or 0} aulas)")
+            
+            with col_list2:
+                st.markdown("**⚠️ Alunos com Pagamento Pendente**")
+                pendentes_lista = [al for al in alunos_todos if (float(al.get("valor_pacote") or 0.0) if al.get("tipo_cobranca") == "pacote" else ((al.get("presencas") or 0) + (al.get("faltas") or 0)) * float(al.get("valor_aula") or 0.0)) - float(al.get("valor_pago") or 0.0) > 0]
+                if pendentes_lista:
+                    for al in pendentes_lista:
+                        st.write(f"- {al['nome']}")
+                else:
+                    st.write("Nenhum! Todos estão em dia ✅")
+
+    # ------------------------------------------
     # 1. ASSISTENTE (RESUMO)
     # ------------------------------------------
-    if menu == "🔔 Assistente (Resumo)":
+    elif menu == "🔔 Assistente (Resumo)":
         st.title("👋 Resumo do Dia")
         
         alertas_niver = []
@@ -120,7 +173,6 @@ else:
             if pres > 0 and pres % 50 == 0:
                 alertas_marcos.append(f"⭐ **{al['nome']}** completou {pres} aulas com você!")
 
-            # Alerta financeiro simplificado
             devido = float(al.get("valor_pacote") or 0.0) if al.get("tipo_cobranca") == "pacote" else ((pres + (al.get("faltas") or 0)) * float(al.get("valor_aula") or 0.0))
             pago = float(al.get("valor_pago") or 0.0)
             if (devido - pago) > 0.5 and hoje.day > (al.get("vencimento") or 10):
@@ -140,13 +192,13 @@ else:
                 if alertas_financeiros:
                     for a in alertas_financeiros: st.write(a)
                 else:
-                    st.write("Nenhum pagamento pendente para hoje. Tudo em dia!")
+                    st.write("Nenhum pagamento crítico para hoje.")
 
     # ------------------------------------------
     # 2. SESSÃO ATIVA
     # ------------------------------------------
-    elif menu == "🔴 Aula Agora (Sessão)":
-        st.title("🔴 Sessão Ativa")
+    elif menu == "🔴 Sessão Ativa":
+        st.title("🔴 Aula Agora")
         if not alunos_todos:
             st.warning("Cadastre alunos primeiro.")
         else:
@@ -155,7 +207,6 @@ else:
             aluno_dados = mapa_nomes[aluno_sel]
             
             st.write(f"**Aulas restantes no pacote:** {aluno_dados.get('aulas_restantes', 0)}")
-            
             obs_treino = st.text_area("📝 Notas rápidas do treino (Opcional):", height=100)
             
             c1, c2 = st.columns(2)
@@ -166,6 +217,7 @@ else:
                 preparar_cliente()
                 supabase.table("alunos").update(upd).eq("id", aluno_dados["id"]).execute()
                 st.success("Presença registrada!")
+                st.rerun()
                 
             if c2.button("❌ COBRAR FALTA", use_container_width=True):
                 upd = {"faltas": (aluno_dados.get("faltas") or 0) + 1}
@@ -174,12 +226,13 @@ else:
                 preparar_cliente()
                 supabase.table("alunos").update(upd).eq("id", aluno_dados["id"]).execute()
                 st.warning("Falta registrada.")
+                st.rerun()
 
     # ------------------------------------------
     # 3. AGENDA & LOCAIS
     # ------------------------------------------
-    elif menu == "📅 Agenda & Locais":
-        st.title("📅 Agenda")
+    elif menu == "📅 Agenda":
+        st.title("📅 Agenda de Aulas")
         with st.expander("➕ Agendar Nova Aula"):
             mapa_nomes = {al["nome"]: al["id"] for al in alunos_todos}
             if mapa_nomes:
@@ -210,10 +263,45 @@ else:
                 st.caption(f"📍 **Local:** {item.get('local') or 'Não informado'}")
 
     # ------------------------------------------
-    # 4. ALUNOS E CRM
+    # 4. ALUNOS E CRM (COM EDIÇÃO MANUAL)
     # ------------------------------------------
     elif menu == "👤 Alunos & CRM":
         st.title("👤 Gestão de Alunos")
+        
+        # --- NOVO: EDIÇÃO MANUAL ---
+        if alunos_todos:
+            with st.expander("✏️ Editar Valores / Dados Manuais do Aluno"):
+                st.caption("Altere preços de pacotes, descontos ou corrija quantidades de aulas manualmente.")
+                mapa_edicao = {al["nome"]: al for al in alunos_todos}
+                aluno_ed = st.selectbox("Selecione o Aluno para Editar", list(mapa_edicao.keys()))
+                dados_ed = mapa_edicao[aluno_ed]
+                
+                with st.form("form_edicao_manual"):
+                    c_e1, c_e2 = st.columns(2)
+                    with c_e1:
+                        novo_valor_pacote = st.number_input("Valor do Pacote (R$)", value=float(dados_ed.get("valor_pacote") or 0.0), min_value=0.0)
+                        nova_presenca = st.number_input("Total de Presenças", value=int(dados_ed.get("presencas") or 0), min_value=0)
+                        novo_valor_pago = st.number_input("Valor Já Pago (R$)", value=float(dados_ed.get("valor_pago") or 0.0), min_value=0.0)
+                    with c_e2:
+                        novo_valor_aula = st.number_input("Valor Avulso (R$)", value=float(dados_ed.get("valor_aula") or 0.0), min_value=0.0)
+                        nova_falta = st.number_input("Total de Faltas", value=int(dados_ed.get("faltas") or 0), min_value=0)
+                        novas_aulas_rest = st.number_input("Aulas Restantes (Pacote)", value=int(dados_ed.get("aulas_restantes") or 0), min_value=0)
+                        
+                    if st.form_submit_button("💾 Salvar Alterações", type="primary"):
+                        preparar_cliente()
+                        supabase.table("alunos").update({
+                            "valor_pacote": novo_valor_pacote,
+                            "valor_aula": novo_valor_aula,
+                            "presencas": nova_presenca,
+                            "faltas": nova_falta,
+                            "valor_pago": novo_valor_pago,
+                            "aulas_restantes": novas_aulas_rest
+                        }).eq("id", dados_ed["id"]).execute()
+                        st.success("Valores atualizados manualmente com sucesso!")
+                        st.rerun()
+
+        st.divider()
+
         with st.expander("➕ Cadastrar Novo Aluno"):
             with st.form("form_novo"):
                 nome = st.text_input("Nome")
@@ -244,12 +332,11 @@ else:
     # ------------------------------------------
     # 5. FINANCEIRO GERAL
     # ------------------------------------------
-    elif menu == "💰 Financeiro Geral":
+    elif menu == "💰 Financeiro":
         st.title("💰 Gestão Financeira")
         
         tab_alunos, tab_caixa, tab_config = st.tabs(["Mensalidades (Cobrança)", "Fluxo de Caixa e Metas", "Configuração PIX"])
         
-        # --- ABA 3: CONFIGURAÇÃO ---
         with tab_config:
             st.markdown("### Configurar Mensagem de Cobrança")
             chave = st.text_input("Digite sua chave de recebimento (PIX, Link, etc):", value=st.session_state.chave_pix)
@@ -257,9 +344,8 @@ else:
                 st.session_state.chave_pix = chave
                 st.success("Chave salva para esta sessão!")
 
-        # --- ABA 1: MENSALIDADES ---
         with tab_alunos:
-            st.markdown("### Status de Pagamento dos Alunos")
+            st.markdown("### Status de Pagamento")
             for al in alunos_todos:
                 pres = al.get("presencas") or 0
                 fal = al.get("faltas") or 0
@@ -280,27 +366,21 @@ else:
                         if saldo > 0:
                             msg = f"Fala {al['nome']}! Tudo bem? Passando só para avisar que o seu pacote de aulas venceu. Segue a chave para renovação: {st.session_state.chave_pix}. Valeu!"
                             
-                            # CORREÇÃO SEGURA DO TELEFONE
                             telefone_salvo = al.get("telefone")
                             telefone_texto = str(telefone_salvo) if telefone_salvo is not None else ""
                             tel = re.sub(r'\D', '', telefone_texto)
                             
                             if tel:
                                 link_whats = f"https://wa.me/55{tel}?text={urllib.parse.quote(msg)}"
-                                st.markdown(f"<a href='{link_whats}' target='_blank'><button style='background-color:#25D366; color:white; border:none; padding:8px; border-radius:5px; width:100%;'>📱 Cobrar WhatsApp</button></a>", unsafe_allow_html=True)
-                            else:
-                                st.caption("Sem telefone cadastrado")
+                                st.markdown(f"<a href='{link_whats}' target='_blank'><button style='background-color:#25D366; color:white; border:none; padding:8px; border-radius:5px; width:100%;'>📱 Cobrar</button></a>", unsafe_allow_html=True)
                             
-                            # Botão para zerar a dívida
                             if st.button("Baixar Pgto", key=f"pg_{al['id']}", use_container_width=True):
                                 preparar_cliente()
                                 upd = {"valor_pago": devido, "aulas_restantes": al.get("total_aulas_pacote", 0), "presencas": 0, "faltas": 0}
                                 supabase.table("alunos").update(upd).eq("id", al["id"]).execute()
-                                # Salva como receita no fluxo de caixa
                                 supabase.table("transacoes").insert({"user_id": user_id, "tipo": "Receita", "valor": saldo, "categoria": "Mensalidade", "descricao": f"Pgto {al['nome']}", "data_transacao": hoje.isoformat()}).execute()
                                 st.rerun()
 
-        # --- ABA 2: FLUXO DE CAIXA ---
         with tab_caixa:
             c_add, c_resumo = st.columns([1, 2])
             with c_add:
@@ -335,9 +415,8 @@ else:
                 
                 st.divider()
                 st.markdown("### 🎯 Metas e Reservas")
-                st.caption("Planejamento para longo prazo (ex: Viagem Itália, Compra de Equipamentos)")
-                meta_nome = st.text_input("Nome do Objetivo", value="Viagem Itália 2026")
-                meta_valor = st.number_input("Custo Estimado (R$)", value=15000.0, min_value=1.0)
+                meta_nome = st.text_input("Nome do Objetivo", value="Reserva de Emergência")
+                meta_valor = st.number_input("Custo Estimado (R$)", value=5000.0, min_value=1.0)
                 meta_guardado = st.number_input("Já reservado (R$)", value=0.0)
                 
                 if meta_valor > 0:
