@@ -8,16 +8,104 @@ import re
 import uuid
 
 # ==========================================
-# CONFIGURAÇÃO E CSS
+# CONFIGURAÇÃO E CSS (DESIGN REFINADO)
 # ==========================================
 st.set_page_config(page_title="Assistente Personal Trainer", layout="wide", initial_sidebar_state="expanded")
 
 def aplicar_estilo_customizado():
     st.markdown("""
         <style>
-        .stButton>button { border-radius: 10px !important; font-weight: 600 !important; transition: 0.2s; }
-        .stButton>button:hover { transform: scale(1.02); }
-        [data-testid="stMetricValue"] { color: #2ECC71 !important; font-size: 24px !important;}
+        /* Importação da fonte moderna Plus Jakarta Sans */
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+        html, body, [class*="css"] {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        /* Estilização de Cards e Bloco de Métricas (Glassmorphism) */
+        [data-testid="stMetric"], div[data-testid="stVerticalBlock"] > div[style*="border"] {
+            background: rgba(30, 41, 59, 0.5) !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-radius: 16px !important;
+            backdrop-filter: blur(12px) !important;
+            box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.2) !important;
+            padding: 1.2rem !important;
+            transition: all 0.3s ease !important;
+        }
+
+        /* Efeito de Elevação ao Passar o Mouse nos Cards */
+        [data-testid="stMetric"]:hover, div[data-testid="stVerticalBlock"] > div[style*="border"]:hover {
+            transform: translateY(-3px) !important;
+            box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.3) !important;
+            border-color: rgba(46, 204, 113, 0.4) !important;
+        }
+
+        /* Destaque para os Valores das Métricas */
+        [data-testid="stMetricValue"] {
+            color: #2ECC71 !important;
+            font-weight: 700 !important;
+            font-size: 28px !important;
+            letter-spacing: -0.5px !important;
+        }
+
+        /* Botões com Gradiente e Sombreamento */
+        .stButton>button {
+            border-radius: 12px !important;
+            font-weight: 600 !important;
+            background: linear-gradient(135deg, #2ECC71 0%, #27AE60 100%) !important;
+            color: #FFFFFF !important;
+            border: none !important;
+            padding: 0.6rem 1.2rem !important;
+            box-shadow: 0 4px 14px rgba(46, 204, 113, 0.25) !important;
+            transition: all 0.25s ease-in-out !important;
+        }
+
+        /* Animação do Botão no Hover */
+        .stButton>button:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 6px 20px rgba(46, 204, 113, 0.4) !important;
+            background: linear-gradient(135deg, #27AE60 0%, #219653 100%) !important;
+        }
+
+        /* Campos de Entrada (Inputs, Selects e Data) */
+        .stTextInput>div>div>input, 
+        .stSelectbox>div>div>div, 
+        .stNumberInput>div>div>input, 
+        .stDateInput>div>div>input {
+            border-radius: 10px !important;
+            border: 1px solid rgba(255, 255, 255, 0.12) !important;
+            transition: border-color 0.2s ease !important;
+        }
+
+        .stTextInput>div>div>input:focus, 
+        .stSelectbox>div>div>div:focus {
+            border-color: #2ECC71 !important;
+            box-shadow: 0 0 0 2px rgba(46, 204, 113, 0.2) !important;
+        }
+
+        /* Estilização das Abas (Tabs) */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 8px !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+        }
+
+        .stTabs [data-baseweb="tab"] {
+            border-radius: 8px 8px 0 0 !important;
+            padding: 10px 20px !important;
+            font-weight: 500 !important;
+        }
+
+        .stTabs [aria-selected="true"] {
+            background-color: rgba(46, 204, 113, 0.15) !important;
+            color: #2ECC71 !important;
+            font-weight: 600 !important;
+        }
+
+        /* Modificações de Divisores */
+        hr {
+            margin: 2rem 0 !important;
+            border-color: rgba(255, 255, 255, 0.08) !important;
+        }
         </style>
     """, unsafe_allow_html=True)
 
