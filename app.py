@@ -76,7 +76,7 @@ if "token" in query_params:
             }).eq("id", aluno["id"]).execute()
 
             st.success("Questionário enviado com sucesso!")
-            st.experimental_rerun()
+            st.rerun()
 
     st.stop()
 
@@ -99,7 +99,7 @@ if not st.session_state.user:
             try:
                 res = supabase.auth.sign_in_with_password({"email": email, "password": senha})
                 st.session_state.user = res.user
-                st.experimental_rerun()
+                st.rerun()
             except Exception as e:
                 st.error(f"Erro ao entrar: {e}")
 
@@ -123,7 +123,7 @@ st.sidebar.title("🏋️ Studio Manager")
 if st.sidebar.button("Sair / Logout"):
     supabase.auth.sign_out()
     st.session_state.user = None
-    st.experimental_rerun()
+    st.rerun()
 
 menu = st.sidebar.radio("Navegação", ["📅 Calendário & Presença", "👤 Alunos & PAR-Q", "🏋️ Fichas de Treino", "💰 Financeiro & Hora-Aula"])
 
@@ -133,7 +133,6 @@ menu = st.sidebar.radio("Navegação", ["📅 Calendário & Presença", "👤 Al
 if menu == "📅 Calendário & Presença":
     st.header("📅 Agenda de Aulas & Controle de Presença")
     
-    # Busca alunos
     alunos_res = supabase.table("alunos").select("id, nome, valor_hora_aula").eq("user_id", user_id).execute()
     dict_alunos = {a["nome"]: a for a in alunos_res.data} if alunos_res.data else {}
 
@@ -162,7 +161,7 @@ if menu == "📅 Calendário & Presença":
                     "user_id": user_id
                 }).execute()
                 st.success("Aula agendada!")
-                st.experimental_rerun()
+                st.rerun()
         else:
             st.info("Cadastre alunos primeiro para agendar aulas.")
 
@@ -187,7 +186,6 @@ if menu == "📅 Calendário & Presença":
                 aluno_nome = item["alunos"]["nome"] if item.get("alunos") else "Aluno Desconhecido"
                 status_atual = item["status"]
                 
-                # Definir cor conforme status
                 cor = "🔵" if status_atual == "Agendado" else ("🟢" if status_atual == "Presença" else ("🔴" if status_atual == "Falta" else "🟡"))
 
                 with st.expander(f"{cor} {dt.strftime('%H:%M')} - {aluno_nome} ({status_atual})"):
@@ -196,19 +194,19 @@ if menu == "📅 Calendário & Presença":
                     c1, c2, c3, c4 = st.columns(4)
                     if c1.button("🟢 Presença", key=f"p_{item['id']}"):
                         supabase.table("agendamentos").update({"status": "Presença"}).eq("id", item["id"]).execute()
-                        st.experimental_rerun()
+                        st.rerun()
 
                     if c2.button("🔴 Falta", key=f"f_{item['id']}"):
                         supabase.table("agendamentos").update({"status": "Falta"}).eq("id", item["id"]).execute()
-                        st.experimental_rerun()
+                        st.rerun()
 
                     if c3.button("🟡 Desmarcada", key=f"d_{item['id']}"):
                         supabase.table("agendamentos").update({"status": "Desmarcada"}).eq("id", item["id"]).execute()
-                        st.experimental_rerun()
+                        st.rerun()
 
                     if c4.button("🗑️ Cancelar", key=f"del_{item['id']}"):
                         supabase.table("agendamentos").delete().eq("id", item["id"]).execute()
-                        st.experimental_rerun()
+                        st.rerun()
         else:
             st.write("Nenhuma aula agendada para esta data.")
 
@@ -237,7 +235,7 @@ elif menu == "👤 Alunos & PAR-Q":
                         "user_id": user_id
                     }).execute()
                     st.success("Aluno cadastrado!")
-                    st.experimental_rerun()
+                    st.rerun()
                 else:
                     st.error("O campo Nome é obrigatório.")
 
@@ -298,7 +296,7 @@ elif menu == "🏋️ Fichas de Treino":
                         "user_id": user_id
                     }).execute()
                     st.success("Ficha salva!")
-                    st.experimental_rerun()
+                    st.rerun()
 
         with tab_ver:
             fichas = supabase.table("treinos").select("*").eq("aluno_id", aluno_id).execute()
@@ -308,7 +306,7 @@ elif menu == "🏋️ Fichas de Treino":
                     st.text(f["detalhes"])
                     if st.button("🗑️ Excluir Ficha", key=f"del_ficha_{f['id']}"):
                         supabase.table("treinos").delete().eq("id", f["id"]).execute()
-                        st.experimental_rerun()
+                        st.rerun()
             else:
                 st.info("Nenhuma ficha cadastrada para este aluno.")
     else:
@@ -320,7 +318,6 @@ elif menu == "🏋️ Fichas de Treino":
 elif menu == "💰 Financeiro & Hora-Aula":
     st.header("💰 Balanço Financeiro & Relatório de Aulas")
 
-    # Resumo de Aulas no Mês (Presença vs Faltas)
     st.subheader("📊 Relatório de Aulas Realizadas (Mês Atual)")
     
     agendamentos_mes = supabase.table("agendamentos")\
@@ -345,7 +342,6 @@ elif menu == "💰 Financeiro & Hora-Aula":
 
     st.divider()
 
-    # Lançamentos Manuais de Caixa
     st.subheader("💵 Caixa Geral (Receitas e Despesas)")
     
     col_lancar, col_kpi = st.columns([1, 1])
@@ -364,7 +360,7 @@ elif menu == "💰 Financeiro & Hora-Aula":
                     "user_id": user_id
                 }).execute()
                 st.success("Lançamento efetuado!")
-                st.experimental_rerun()
+                st.rerun()
 
     with col_kpi:
         trans = supabase.table("transacoes").select("*").eq("user_id", user_id).execute()
