@@ -102,55 +102,117 @@ else:
     # ------------------------------------------
     if menu == "📊 Dashboard":
         st.title("📊 Painel de Controle (Dashboard)")
+        st.caption("Visão geral do seu estúdio e alunos")
+
         total_alunos = len(alunos_todos)
-        total_treinos = sum([(al.get("presencas") or 0) for al in alunos_todos])
-        tot_pago, tot_pendente = 0.0, 0.0
+        total_treinos_dados = sum([(al.get("presencas") or 0) for al in alunos_todos])
+        
+        total_pago = 0.0
+        total_pendente = 0.0
 
         for al in alunos_todos:
-            pres, fal = al.get("presencas") or 0, al.get("faltas") or 0
+            pres = al.get("presencas") or 0
+            fal = al.get("faltas") or 0
             devido = float(al.get("valor_pacote") or 0.0) if al.get("tipo_cobranca") == "pacote" else ((pres + fal) * float(al.get("valor_aula") or 0.0))
             pago = float(al.get("valor_pago") or 0.0)
+            
             saldo = devido - pago
-            if saldo > 0: tot_pendente += saldo
-            tot_pago += pago
+            if saldo > 0:
+                total_pendente += saldo
+            
+            total_pago += pago
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total de Alunos", total_alunos)
-        c2.metric("Treinos Realizados", f"{total_treinos}")
-        c3.metric("Caixa Atual", f"R$ {tot_pago:.2f}")
-        c4.metric("Valores Pendentes", f"R$ {tot_pendente:.2f}", delta="-A receber", delta_color="inverse")
+        c2.metric("Treinos Realizados", f"{total_treinos_dados} aulas")
+        c3.metric("Caixa Atual (Recebido)", f"R$ {total_pago:.2f}")
+        c4.metric("Valores Pendentes", f"R$ {total_pendente:.2f}", delta="-A receber", delta_color="inverse")
+
+        st.divider()
+        st.markdown("### Perfil Rápido dos Alunos")
+        if not alunos_todos:
+            st.info("Cadastre alunos para ver as estatísticas.")
+        else:
+            col_list1, col_list2 = st.columns(2)
+            with col_list1:
+                st.markdown("**🏃‍♂️ Maiores Frequências (Top 5)**")
+                alunos_top = sorted(alunos_todos, key=lambda x: x.get("presencas") or 0, reverse=True)[:5]
+                for al in alunos_top:
+                    st.write(f"- {al['nome']} ({al.get('presencas') or 0} aulas)")
+            
+            with col_list2:
+                st.markdown("**⚠️ Alunos com Pagamento Pendente**")
+                pendentes_lista = [al for al in alunos_todos if (float(al.get("valor_pacote") or 0.0) if al.get("tipo_cobranca") == "pacote" else ((al.get("presencas") or 0) + (al.get("faltas") or 0)) * float(al.get("valor_aula") or 0.0)) - float(al.get("valor_pago") or 0.0) > 0]
+                if pendentes_lista:
+                    for al in pendentes_lista:
+                        st.write(f"- {al['nome']}")
+                else:
+                    st.write("Nenhum! Todos estão em dia ✅")
 
     # ------------------------------------------
     # 1. ASSISTENTE (RESUMO)
     # ------------------------------------------
     elif menu == "🔔 Assistente (Resumo)":
         st.title("👋 Resumo do Dia")
-        st.write("Acompanhe aniversários e alertas de pagamento.")
-        # (Omitido para focar na agenda visual, mantendo as abas principais completas)
-        st.info("Navegue para a Agenda Visual para ver seus horários!")
+        
+        alertas_niver = []
+        alertas_marcos = []
+        alertas_financeiros = []
+        
+        for al in alunos_todos:
+            if al.get("data_nascimento"):
+                try:
+                    dt_nasc = datetime.strptime(al["data_nascimento"], "%Y-%m-%d").date()
+                    if dt_nasc.month == hoje.month and dt_nasc.day == hoje.day:
+                        alertas_niver.append(f"🎂 Hoje é aniversário de **{al['nome']}**! Mande os parabéns.")
+                except:
+                    pass
+            
+            pres = al.get("presencas") or 0
+            if pres > 0 and pres % 50 == 0:
+                alertas_marcos.append(f"⭐ **{al['nome']}** completou {pres} aulas com você!")
+
+            devido = float(al.get("valor_pacote") or 0.0) if al.get("tipo_cobranca") == "pacote" else ((pres + (al.get("faltas") or 0)) * float(al.get("valor_aula") or 0.0))
+            pago = float(al.get("valor_pago") or 0.0)
+            if (devido - pago) > 0.5 and hoje.day > (al.get("vencimento") or 10):
+                alertas_financeiros.append(f"🚨 O pacote de **{al['nome']}** está pendente de renovação.")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            with st.container(border=True):
+                st.markdown("### 🔔 Relacionamento")
+                if alertas_niver or alertas_marcos:
+                    for a in alertas_niver + alertas_marcos: st.write(a)
+                else:
+                    st.write("Sem alertas de relacionamento para hoje.")
+        with c2:
+            with st.container(border=True):
+                st.markdown("### 💰 Avisos Financeiros")
+                if alertas_financeiros:
+                    for a in alertas_financeiros: st.write(a)
+                else:
+                    st.write("Nenhum pagamento pendente para hoje. Tudo em dia!")
 
     # ------------------------------------------
-    # 2. AGENDA VISUAL (ESTILO GOOGLE AGENDA)
+    # 2. AGENDA VISUAL (GOOGLE AGENDA)
     # ------------------------------------------
     elif menu == "📅 Agenda Visual":
         st.title("📅 Agenda de Aulas")
         
         preparar_cliente()
-        # Busca agendamentos do mês atual (para não pesar)
         inicio_mes = (hoje.replace(day=1) - timedelta(days=7)).isoformat()
         res_ag = supabase.table("agendamentos").select("*").eq("user_id", user_id).gte("data_hora", inicio_mes).execute()
         agendamentos = res_ag.data if res_ag.data else []
 
         mapa_alunos_id = {al["id"]: al for al in alunos_todos}
         
-        # 1. Preparar eventos para o Calendário
         eventos_calendario = []
         cores_status = {
-            "agendado": "#3788d8",        # Azul
-            "presenca": "#2ECC71",        # Verde
-            "falta_cobrada": "#E74C3C",   # Vermelho
-            "falta_nao_cobrada": "#F39C12",# Laranja
-            "desmarcado": "#95A5A6"       # Cinza
+            "agendado": "#3788d8",        
+            "presenca": "#2ECC71",        
+            "falta_cobrada": "#E74C3C",   
+            "falta_nao_cobrada": "#F39C12",
+            "desmarcado": "#95A5A6"       
         }
 
         for ag in agendamentos:
@@ -160,7 +222,6 @@ else:
             cor = cores_status.get(status, "#3788d8")
             dt_inicio = ag["data_hora"]
             
-            # Adiciona 1 hora de duração padrão para o evento
             try:
                 dt_fim_obj = datetime.fromisoformat(dt_inicio) + timedelta(hours=1)
                 dt_fim = dt_fim_obj.isoformat()
@@ -175,27 +236,24 @@ else:
                 "borderColor": cor
             })
 
-        # Configurações do Calendário
         opcoes_calendario = {
             "headerToolbar": {
                 "left": "today prev,next",
                 "center": "title",
                 "right": "timeGridDay,timeGridWeek,dayGridMonth"
             },
-            "initialView": "timeGridWeek", # Começa na visão semanal
-            "slotMinTime": "05:00:00",     # Calendário começa 5 da manhã
-            "slotMaxTime": "23:00:00",     # Vai até 23h
+            "initialView": "timeGridWeek",
+            "slotMinTime": "05:00:00",
+            "slotMaxTime": "23:00:00",
             "locale": "pt-br"
         }
 
-        # Renderiza o Calendário Visual
         calendar(events=eventos_calendario, options=opcoes_calendario, custom_css="""
-            .fc-event-title { font-weight: bold; }
+            .fc-event-title { font-weight: bold; font-size: 14px; }
         """)
 
         st.divider()
 
-        # 2. Painel de Ações e Novo Agendamento
         c_agendar, c_gerenciar = st.columns(2)
         
         with c_agendar:
@@ -219,7 +277,6 @@ else:
 
         with c_gerenciar:
             st.markdown("### ⚙️ Gerenciar Presenças / Faltas")
-            # Filtra agendamentos do dia de hoje para frente para facilitar
             agendamentos_ativos = [ag for ag in agendamentos if ag["status"] == "agendado"]
             
             if not agendamentos_ativos:
@@ -257,17 +314,13 @@ else:
                     
                     elif "Falta Não Cobrada" in novo_status:
                         str_status_db = "falta_nao_cobrada"
-                        # Não abate do pacote, só registra o evento
                     
                     elif "Desmarcado" in novo_status:
                         str_status_db = "desmarcado"
-                        # Não mexe em faltas nem pacotes
                         
                     preparar_cliente()
-                    # Atualiza o status no calendário
                     supabase.table("agendamentos").update({"status": str_status_db}).eq("id", ag_selecionado["id"]).execute()
                     
-                    # Se houver atualização financeira/pacote, atualiza o aluno
                     if upd_aluno:
                         supabase.table("alunos").update(upd_aluno).eq("id", aluno_dados["id"]).execute()
                         
@@ -275,16 +328,164 @@ else:
                     st.rerun()
 
     # ------------------------------------------
-    # 3. ALUNOS E CRM
+    # 3. ALUNOS E CRM (COM EDIÇÃO MANUAL)
     # ------------------------------------------
     elif menu == "👤 Alunos & CRM":
         st.title("👤 Gestão de Alunos")
-        # (Omitido no exemplo de resposta para focar, mas mantenha o código anterior dessa aba caso queira o app completo. Para brevidade e evitar erro de indentação, juntei as abas críticas).
-        st.info("As opções de cadastro e edição de alunos continuam funcionando perfeitamente como antes.")
+        
+        if alunos_todos:
+            with st.expander("✏️ Editar Valores / Dados Manuais do Aluno"):
+                st.caption("Altere preços de pacotes, descontos ou corrija quantidades de aulas manualmente.")
+                mapa_edicao = {al["nome"]: al for al in alunos_todos}
+                aluno_ed = st.selectbox("Selecione o Aluno para Editar", list(mapa_edicao.keys()))
+                dados_ed = mapa_edicao[aluno_ed]
+                
+                with st.form("form_edicao_manual"):
+                    c_e1, c_e2 = st.columns(2)
+                    with c_e1:
+                        novo_valor_pacote = st.number_input("Valor do Pacote (R$)", value=float(dados_ed.get("valor_pacote") or 0.0), min_value=0.0)
+                        nova_presenca = st.number_input("Total de Presenças", value=int(dados_ed.get("presencas") or 0), min_value=0)
+                        novo_valor_pago = st.number_input("Valor Já Pago (R$)", value=float(dados_ed.get("valor_pago") or 0.0), min_value=0.0)
+                    with c_e2:
+                        novo_valor_aula = st.number_input("Valor Avulso (R$)", value=float(dados_ed.get("valor_aula") or 0.0), min_value=0.0)
+                        nova_falta = st.number_input("Total de Faltas", value=int(dados_ed.get("faltas") or 0), min_value=0)
+                        novas_aulas_rest = st.number_input("Aulas Restantes (Pacote)", value=int(dados_ed.get("aulas_restantes") or 0), min_value=0)
+                        
+                    if st.form_submit_button("💾 Salvar Alterações", type="primary"):
+                        preparar_cliente()
+                        supabase.table("alunos").update({
+                            "valor_pacote": novo_valor_pacote,
+                            "valor_aula": novo_valor_aula,
+                            "presencas": nova_presenca,
+                            "faltas": nova_falta,
+                            "valor_pago": novo_valor_pago,
+                            "aulas_restantes": novas_aulas_rest
+                        }).eq("id", dados_ed["id"]).execute()
+                        st.success("Valores atualizados manualmente com sucesso!")
+                        st.rerun()
+
+        st.divider()
+
+        with st.expander("➕ Cadastrar Novo Aluno"):
+            with st.form("form_novo"):
+                nome = st.text_input("Nome")
+                data_nasc = st.date_input("Data de Nascimento", min_value=date(1930, 1, 1), max_value=hoje)
+                telefone = st.text_input("WhatsApp (com DDD, só números)")
+                tipo_cob = st.selectbox("Cobrança", ["pacote", "por_aula"])
+                
+                c_v1, c_v2 = st.columns(2)
+                with c_v1:
+                    valor_pacote = st.number_input("Valor Pacote (R$)", min_value=0.0)
+                    aulas_pacote = st.number_input("Aulas por Pacote", min_value=0, value=10)
+                with c_v2:
+                    valor_aula = st.number_input("Valor Avulso (R$)", min_value=0.0)
+                    dia_venc = st.number_input("Dia de Vencimento", min_value=1, max_value=31, value=10)
+
+                if st.form_submit_button("Salvar Aluno"):
+                    preparar_cliente()
+                    supabase.table("alunos").insert({
+                        "user_id": user_id, "nome": nome, "data_nascimento": data_nasc.isoformat(),
+                        "telefone": telefone, "tipo_cobranca": tipo_cob,
+                        "valor_pacote": valor_pacote, "total_aulas_pacote": aulas_pacote, "aulas_restantes": aulas_pacote,
+                        "valor_aula": valor_aula, "vencimento": dia_venc,
+                        "presencas": 0, "faltas": 0, "valor_pago": 0.0
+                    }).execute()
+                    st.success("Salvo com sucesso!")
+                    st.rerun()
 
     # ------------------------------------------
     # 4. FINANCEIRO GERAL
     # ------------------------------------------
     elif menu == "💰 Financeiro":
         st.title("💰 Gestão Financeira")
-        st.info("Fluxo de caixa e mensalidades continuam seguros aqui.")
+        
+        tab_alunos, tab_caixa, tab_config = st.tabs(["Mensalidades (Cobrança)", "Fluxo de Caixa e Metas", "Configuração PIX"])
+        
+        with tab_config:
+            st.markdown("### Configurar Mensagem de Cobrança")
+            chave = st.text_input("Digite sua chave de recebimento (PIX, Link, etc):", value=st.session_state.chave_pix)
+            if st.button("Salvar Chave"):
+                st.session_state.chave_pix = chave
+                st.success("Chave salva para esta sessão!")
+
+        with tab_alunos:
+            st.markdown("### Status de Pagamento")
+            for al in alunos_todos:
+                pres = al.get("presencas") or 0
+                fal = al.get("faltas") or 0
+                devido = float(al.get("valor_pacote") or 0.0) if al.get("tipo_cobranca") == "pacote" else ((pres + fal) * float(al.get("valor_aula") or 0.0))
+                pago = float(al.get("valor_pago") or 0.0)
+                saldo = devido - pago
+
+                with st.container(border=True):
+                    col_info, col_acao = st.columns([3, 1])
+                    with col_info:
+                        st.markdown(f"**{al['nome']}**")
+                        if saldo > 0:
+                            st.error(f"Pendente: R$ {saldo:.2f}")
+                        else:
+                            st.success("Em dia ✅")
+                    
+                    with col_acao:
+                        if saldo > 0:
+                            msg = f"Fala {al['nome']}! Tudo bem? Passando só para avisar que o seu pacote de aulas venceu. Segue a chave para renovação: {st.session_state.chave_pix}. Valeu!"
+                            
+                            telefone_salvo = al.get("telefone")
+                            telefone_texto = str(telefone_salvo) if telefone_salvo is not None else ""
+                            tel = re.sub(r'\D', '', telefone_texto)
+                            
+                            if tel:
+                                link_whats = f"https://wa.me/55{tel}?text={urllib.parse.quote(msg)}"
+                                st.markdown(f"<a href='{link_whats}' target='_blank'><button style='background-color:#25D366; color:white; border:none; padding:8px; border-radius:5px; width:100%;'>📱 Cobrar</button></a>", unsafe_allow_html=True)
+                            else:
+                                st.caption("Sem telefone")
+                            
+                            if st.button("Baixar Pgto", key=f"pg_{al['id']}", use_container_width=True):
+                                preparar_cliente()
+                                upd = {"valor_pago": devido, "aulas_restantes": al.get("total_aulas_pacote", 0), "presencas": 0, "faltas": 0}
+                                supabase.table("alunos").update(upd).eq("id", al["id"]).execute()
+                                supabase.table("transacoes").insert({"user_id": user_id, "tipo": "Receita", "valor": saldo, "categoria": "Mensalidade", "descricao": f"Pgto {al['nome']}", "data_transacao": hoje.isoformat()}).execute()
+                                st.rerun()
+
+        with tab_caixa:
+            c_add, c_resumo = st.columns([1, 2])
+            with c_add:
+                st.markdown("### Lançar Transação")
+                with st.form("form_trans"):
+                    tipo_t = st.selectbox("Tipo", ["Receita", "Despesa"])
+                    valor_t = st.number_input("Valor (R$)", min_value=0.0)
+                    cat_t = st.selectbox("Categoria", ["Mensalidade", "Combustível", "Equipamento", "Curso/Evento", "Outros"])
+                    desc_t = st.text_input("Descrição breve")
+                    
+                    if st.form_submit_button("Registrar no Caixa"):
+                        preparar_cliente()
+                        supabase.table("transacoes").insert({"user_id": user_id, "tipo": "Receita" if tipo_t == "Receita" else "Despesa", "valor": valor_t, "categoria": cat_t, "descricao": desc_t, "data_transacao": hoje.isoformat()}).execute()
+                        st.success("Registrado!")
+                        st.rerun()
+                        
+            with c_resumo:
+                st.markdown("### Resumo do Mês")
+                preparar_cliente()
+                iso_inicio_mes = date(hoje.year, hoje.month, 1).isoformat()
+                res_t = supabase.table("transacoes").select("*").eq("user_id", user_id).gte("data_transacao", iso_inicio_mes).execute()
+                dados_t = res_t.data if res_t.data else []
+                
+                tot_rec = sum(float(t["valor"]) for t in dados_t if t["tipo"] == "Receita")
+                tot_desp = sum(float(t["valor"]) for t in dados_t if t["tipo"] == "Despesa")
+                lucro = tot_rec - tot_desp
+                
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Entradas", f"R$ {tot_rec:.2f}")
+                m2.metric("Saídas", f"R$ {tot_desp:.2f}")
+                m3.metric("Lucro Líquido", f"R$ {lucro:.2f}")
+                
+                st.divider()
+                st.markdown("### 🎯 Metas e Reservas")
+                meta_nome = st.text_input("Nome do Objetivo", value="Viagem Itália (Dez 2026)")
+                meta_valor = st.number_input("Custo Estimado (R$)", value=15000.0, min_value=1.0)
+                meta_guardado = st.number_input("Já reservado (R$)", value=0.0)
+                
+                if meta_valor > 0:
+                    progresso = min(meta_guardado / meta_valor, 1.0)
+                    st.progress(progresso)
+                    st.write(f"**Progresso:** {progresso*100:.1f}% concluído (R$ {meta_guardado:.2f} de R$ {meta_valor:.2f})")
