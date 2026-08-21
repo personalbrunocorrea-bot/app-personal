@@ -320,6 +320,66 @@ def carregar_alunos(user_id):
         st.error(f"Erro ao carregar alunos: {e}")
         return []
 
+def carregar_transacoes(user_id):
+    preparar_cliente()
+    try:
+        res = supabase.table("transacoes").select("*").eq("user_id", user_id).execute()
+        return res.data if res.data else []
+    except Exception as e:
+        st.error(f"Erro ao carregar transações: {e}")
+        return []
+
+def parse_data_pagamento(valor):
+    if not valor:
+        return None
+    try:
+        return parse_data_hora(valor).date()
+    except Exception:
+        try:
+            return datetime.strptime(str(valor)[:10], "%Y-%m-%d").date()
+        except Exception:
+            return None
+
+def situacao_financeira(aluno, transacoes_todas, hoje_data):
+    """Calcula a situação financeira real de um aluno a partir do
+    histórico em `transacoes`, em vez de um único campo cumulativo.
+
+    - por_aula: saldo devedor cumulativo (paga conforme usa) — soma tudo
+      que já foi pago contra o total de aulas já dadas.
+    - pacote: modelo de renovação — considera em dia se o pagamento mais
+      recente aconteceu nos últimos 30 dias (o ciclo do pacote). Isso é
+      o que corrige o bug original: antes, um único pagamento deixava o
+      aluno "em dia" para sempre, porque não havia noção de ciclo.
+    """
+    transacoes_aluno = [t for t in transacoes_todas if t.get("aluno_id") == aluno.get("id")]
+    pago_total = sum(float(t.get("valor") or 0.0) for t in transacoes_aluno)
+
+    datas_pagamento = [parse_data_pagamento(t.get("data_pagamento")) for t in transacoes_aluno]
+    datas_pagamento = [d for d in datas_pagamento if d is not None]
+    ultimo_pagamento = max(datas_pagamento) if datas_pagamento else None
+
+    pres = aluno.get("presencas") or 0
+    fal = aluno.get("faltas") or 0
+    tipo = aluno.get("tipo_cobranca")
+
+    if tipo == "pacote":
+        valor_pacote = float(aluno.get("valor_pacote") or 0.0)
+        em_dia = ultimo_pagamento is not None and (hoje_data - ultimo_pagamento).days <= 30
+        saldo = 0.0 if em_dia else valor_pacote
+        devido_referencia = valor_pacote
+    else:
+        devido_referencia = (pres + fal) * float(aluno.get("valor_aula") or 0.0)
+        saldo = max(0.0, devido_referencia - pago_total)
+        em_dia = saldo <= 0.01
+
+    return {
+        "em_dia": em_dia,
+        "saldo": round(saldo, 2),
+        "devido": round(devido_referencia, 2),
+        "pago_total": round(pago_total, 2),
+        "ultimo_pagamento": ultimo_pagamento,
+    }
+
 hoje = date.today()
 
 # ------------------------------------------
@@ -357,6 +417,7 @@ if st.session_state.user is None:
 else:
     user_id = st.session_state.user.id
     alunos_todos = carregar_alunos(user_id)
+    transacoes_todas = carregar_transacoes(user_id)
 
     with st.sidebar:
         menu = option_menu(
@@ -384,16 +445,9 @@ else:
         total_pendente = 0.0
 
         for al in alunos_todos:
-            pres = al.get("presencas") or 0
-            fal = al.get("faltas") or 0
-            devido = float(al.get("valor_pacote") or 0.0) if al.get("tipo_cobranca") == "pacote" else ((pres + fal) * float(al.get("valor_aula") or 0.0))
-            pago = float(al.get("valor_pago") or 0.0)
-            
-            saldo = devido - pago
-            if saldo > 0:
-                total_pendente += saldo
-            
-            total_pago += pago
+            sit = situacao_financeira(al, transacoes_todas, hoje)
+            total_pendente += sit["saldo"]
+            total_pago += sit["pago_total"]
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total de Alunos", total_alunos)
@@ -415,7 +469,7 @@ else:
             
             with col_list2:
                 st.markdown("**⚠️ Alunos com Pagamento Pendente**")
-                pendentes_lista = [al for al in alunos_todos if (float(al.get("valor_pacote") or 0.0) if al.get("tipo_cobranca") == "pacote" else ((al.get("presencas") or 0) + (al.get("faltas") or 0)) * float(al.get("valor_aula") or 0.0)) - float(al.get("valor_pago") or 0.0) > 0]
+                pendentes_lista = [al for al in alunos_todos if not situacao_financeira(al, transacoes_todas, hoje)["em_dia"]]
                 if pendentes_lista:
                     for al in pendentes_lista:
                         st.write(f"- {al['nome']}")
@@ -445,9 +499,8 @@ else:
             if pres > 0 and pres % 50 == 0:
                 alertas_marcos.append(f"⭐ **{al['nome']}** completou {pres} aulas com você!")
 
-            devido = float(al.get("valor_pacote") or 0.0) if al.get("tipo_cobranca") == "pacote" else ((pres + (al.get("faltas") or 0)) * float(al.get("valor_aula") or 0.0))
-            pago = float(al.get("valor_pago") or 0.0)
-            if (devido - pago) > 0.5 and hoje.day > (al.get("vencimento") or 10):
+            sit = situacao_financeira(al, transacoes_todas, hoje)
+            if not sit["em_dia"]:
                 alertas_financeiros.append(f"🚨 O pacote de **{al['nome']}** está pendente de renovação.")
 
         c1, c2 = st.columns(2)
@@ -812,41 +865,78 @@ else:
                     with col_e2:
                         f_emg_fone = st.text_input("Telefone de Emergência", value=aluno_sel.get("contato_emergencia_fone", ""))
 
-                    st.markdown("#### 💰 Plano e Frequência")
-                    col_f1, col_f2, col_f3 = st.columns(3)
-                    with col_f1:
+                    st.markdown("#### 💰 Plano e Cobrança")
+                    tipos_cobranca_opcoes = ["pacote", "por_aula"]
+                    col_t1, col_t2, col_t3 = st.columns(3)
+                    with col_t1:
+                        f_tipo_cobranca = st.selectbox("Tipo de Cobrança", tipos_cobranca_opcoes,
+                            index=tipos_cobranca_opcoes.index(aluno_sel.get("tipo_cobranca")) if aluno_sel.get("tipo_cobranca") in tipos_cobranca_opcoes else 0)
+                    with col_t2:
                         f_valor_pacote = st.number_input("Valor Pacote (R$)", value=float(aluno_sel.get("valor_pacote") or 0.0), min_value=0.0)
-                        f_presencas = st.number_input("Presenças", value=int(aluno_sel.get("presencas") or 0), min_value=0)
-                    with col_f2:
+                    with col_t3:
                         f_valor_aula = st.number_input("Valor Avulso (R$)", value=float(aluno_sel.get("valor_aula") or 0.0), min_value=0.0)
-                        f_faltas = st.number_input("Faltas", value=int(aluno_sel.get("faltas") or 0), min_value=0)
-                    with col_f3:
-                        f_valor_pago = st.number_input("Valor Já Pago (R$)", value=float(aluno_sel.get("valor_pago") or 0.0), min_value=0.0)
+
+                    col_t4, col_t5, col_t6 = st.columns(3)
+                    with col_t4:
+                        f_total_aulas_pacote = st.number_input("Aulas por Pacote", value=int(aluno_sel.get("total_aulas_pacote") or 10), min_value=0)
+                    with col_t5:
                         f_aulas_restantes = st.number_input("Aulas Restantes", value=int(aluno_sel.get("aulas_restantes") or 0), min_value=0)
+                    with col_t6:
+                        f_vencimento = st.number_input("Dia de Vencimento", value=int(aluno_sel.get("vencimento") or 10), min_value=1, max_value=31)
+
+                    st.markdown("#### 📊 Frequência e PAR-Q")
+                    parq_opcoes = ["pendente", "assinado"]
+                    col_g1, col_g2, col_g3 = st.columns(3)
+                    with col_g1:
+                        f_presencas = st.number_input("Presenças", value=int(aluno_sel.get("presencas") or 0), min_value=0)
+                    with col_g2:
+                        f_faltas = st.number_input("Faltas", value=int(aluno_sel.get("faltas") or 0), min_value=0)
+                    with col_g3:
+                        f_parq_status = st.selectbox("Status do PAR-Q", parq_opcoes,
+                            index=parq_opcoes.index(aluno_sel.get("parq_status")) if aluno_sel.get("parq_status") in parq_opcoes else 0)
+
+                    sit_edicao = situacao_financeira(aluno_sel, transacoes_todas, hoje)
+                    ultimo_pag_edicao = sit_edicao["ultimo_pagamento"].strftime("%d/%m/%Y") if sit_edicao["ultimo_pagamento"] else "nunca"
+                    st.caption(f"💵 Total pago (histórico real, via aba Financeiro): **R$ {sit_edicao['pago_total']:.2f}** — último pagamento: {ultimo_pag_edicao}. Esse valor não é editável aqui porque agora vem do extrato de pagamentos, não de um campo único.")
 
                     if st.form_submit_button("💾 Salvar Perfil", type="primary", use_container_width=True):
-                        preparar_cliente()
-                        try:
-                            supabase.table("alunos").update({
-                                "nome": f_nome,
-                                "data_nascimento": f_data_nasc.isoformat(),
-                                "telefone": f_telefone,
-                                "email": f_email,
-                                "cpf": f_cpf,
-                                "status": f_status,
-                                "contato_emergencia_nome": f_emg_nome,
-                                "contato_emergencia_fone": f_emg_fone,
-                                "valor_pacote": f_valor_pacote,
-                                "valor_aula": f_valor_aula,
-                                "presencas": f_presencas,
-                                "faltas": f_faltas,
-                                "valor_pago": f_valor_pago,
-                                "aulas_restantes": f_aulas_restantes
-                            }).eq("id", aluno_sel["id"]).execute()
-                            st.success("Perfil do aluno atualizado com sucesso!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erro ao salvar alterações no Supabase: {e}")
+                        erros = []
+                        if not f_nome or not f_nome.strip():
+                            erros.append("O nome não pode ficar em branco.")
+                        tel_digitos = re.sub(r'\D', '', f_telefone or "")
+                        if f_telefone and len(tel_digitos) not in (10, 11):
+                            erros.append("O WhatsApp precisa ter DDD + número (10 ou 11 dígitos).")
+
+                        if erros:
+                            for erro in erros:
+                                st.error(erro)
+                        else:
+                            with st.spinner("Salvando alterações..."):
+                                preparar_cliente()
+                                try:
+                                    supabase.table("alunos").update({
+                                        "nome": f_nome.strip(),
+                                        "data_nascimento": f_data_nasc.isoformat(),
+                                        "telefone": f_telefone,
+                                        "email": f_email,
+                                        "cpf": f_cpf,
+                                        "status": f_status,
+                                        "contato_emergencia_nome": f_emg_nome,
+                                        "contato_emergencia_fone": f_emg_fone,
+                                        "tipo_cobranca": f_tipo_cobranca,
+                                        "valor_pacote": f_valor_pacote,
+                                        "valor_aula": f_valor_aula,
+                                        "total_aulas_pacote": f_total_aulas_pacote,
+                                        "aulas_restantes": f_aulas_restantes,
+                                        "vencimento": f_vencimento,
+                                        "presencas": f_presencas,
+                                        "faltas": f_faltas,
+                                        "parq_status": f_parq_status
+                                    }).eq("id", aluno_sel["id"]).execute()
+                                    st.success("Perfil do aluno atualizado com sucesso!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error("Não foi possível salvar as alterações. Tente novamente em instantes.")
 
         # --- SEÇÃO CADASTRO ---
         with st.expander("➕ Cadastrar Novo Aluno"):
@@ -865,30 +955,42 @@ else:
                     dia_venc = st.number_input("Dia de Vencimento", min_value=1, max_value=31, value=10)
 
                 if st.form_submit_button("Salvar Aluno"):
-                    preparar_cliente()
-                    token_inicial = str(uuid.uuid4())[:10]
-                    try:
-                        supabase.table("alunos").insert({
-                            "user_id": user_id, 
-                            "nome": nome, 
-                            "data_nascimento": data_nasc.isoformat(),
-                            "telefone": telefone, 
-                            "tipo_cobranca": tipo_cob,
-                            "valor_pacote": valor_pacote, 
-                            "total_aulas_pacote": aulas_pacote, 
-                            "aulas_restantes": aulas_pacote,
-                            "valor_aula": valor_aula, 
-                            "vencimento": dia_venc,
-                            "presencas": 0, 
-                            "faltas": 0, 
-                            "valor_pago": 0.0,
-                            "parq_token": token_inicial, 
-                            "parq_status": "pendente"
-                        }).execute()
-                        st.success("Aluno salvo com sucesso!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro ao cadastrar aluno no Supabase: {e}")
+                    erros_novo = []
+                    if not nome or not nome.strip():
+                        erros_novo.append("O nome não pode ficar em branco.")
+                    tel_digitos_novo = re.sub(r'\D', '', telefone or "")
+                    if telefone and len(tel_digitos_novo) not in (10, 11):
+                        erros_novo.append("O WhatsApp precisa ter DDD + número (10 ou 11 dígitos).")
+
+                    if erros_novo:
+                        for erro in erros_novo:
+                            st.error(erro)
+                    else:
+                        with st.spinner("Salvando aluno..."):
+                            preparar_cliente()
+                            token_inicial = str(uuid.uuid4())[:10]
+                            try:
+                                supabase.table("alunos").insert({
+                                    "user_id": user_id, 
+                                    "nome": nome.strip(), 
+                                    "data_nascimento": data_nasc.isoformat(),
+                                    "telefone": telefone, 
+                                    "tipo_cobranca": tipo_cob,
+                                    "valor_pacote": valor_pacote, 
+                                    "total_aulas_pacote": aulas_pacote, 
+                                    "aulas_restantes": aulas_pacote,
+                                    "valor_aula": valor_aula, 
+                                    "vencimento": dia_venc,
+                                    "presencas": 0, 
+                                    "faltas": 0, 
+                                    "valor_pago": 0.0,
+                                    "parq_token": token_inicial, 
+                                    "parq_status": "pendente"
+                                }).execute()
+                                st.success("Aluno salvo com sucesso!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error("Não foi possível cadastrar o aluno. Tente novamente em instantes.")
 
     # ------------------------------------------
     # 4. FINANCEIRO GERAL
@@ -911,24 +1013,21 @@ else:
                 st.info("Nenhum aluno cadastrado.")
             else:
                 for al in alunos_todos:
-                    pres = al.get("presencas") or 0
-                    fal = al.get("faltas") or 0
-                    devido = float(al.get("valor_pacote") or 0.0) if al.get("tipo_cobranca") == "pacote" else ((pres + fal) * float(al.get("valor_aula") or 0.0))
-                    pago = float(al.get("valor_pago") or 0.0)
-                    saldo = devido - pago
+                    sit = situacao_financeira(al, transacoes_todas, hoje)
 
                     with st.container(border=True):
                         col_info, col_acao = st.columns([2.5, 1.5])
                         with col_info:
                             st.markdown(f"**{al['nome']}**")
-                            st.caption(f"Cobrança: {al.get('tipo_cobranca', 'pacote').upper()} | Pago: R$ {pago:.2f} | Devido: R$ {devido:.2f}")
-                            if saldo > 0:
-                                st.error(f"Pendente: R$ {saldo:.2f}")
+                            ultimo_pag_txt = sit["ultimo_pagamento"].strftime("%d/%m/%Y") if sit["ultimo_pagamento"] else "nunca"
+                            st.caption(f"Cobrança: {al.get('tipo_cobranca', 'pacote').upper()} | Total pago: R$ {sit['pago_total']:.2f} | Último pagamento: {ultimo_pag_txt}")
+                            if not sit["em_dia"]:
+                                st.error(f"Pendente: R$ {sit['saldo']:.2f}")
                             else:
                                 st.success("Em dia ✅")
                         
                         with col_acao:
-                            if saldo > 0:
+                            if not sit["em_dia"]:
                                 msg = f"Fala {al['nome']}! Tudo bem? Passando só para avisar que o seu pacote de aulas venceu. Segue a chave para renovação: {st.session_state.chave_pix}. Valeu!"
                                 
                                 telefone_salvo = al.get("telefone")
@@ -940,28 +1039,54 @@ else:
                                     st.markdown(f"<a href='{link_whats}' target='_blank'><button style='background-color:#25D366; color:white; border:none; padding:8px; border-radius:5px; width:100%; margin-bottom: 5px;'>📱 Cobrar via WhatsApp</button></a>", unsafe_allow_html=True)
                                 else:
                                     st.caption("Sem telefone")
-                                
-                                if st.button("✅ Registrar Pagamento", key=f"pag_{al['id']}", use_container_width=True):
-                                    preparar_cliente()
-                                    novas_aulas = (al.get("total_aulas_pacote") or 10) if al.get("tipo_cobranca") == "pacote" else 0
-                                    try:
-                                        supabase.table("alunos").update({
-                                            "valor_pago": devido,
-                                            "aulas_restantes": (al.get("aulas_restantes") or 0) + novas_aulas
-                                        }).eq("id", al["id"]).execute()
-                                        st.success("Pagamento registrado!")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Erro ao registrar pagamento: {e}")
+
+                        with st.expander(f"💵 Registrar pagamento — {al['nome']}"):
+                            with st.form(f"form_pagamento_{al['id']}"):
+                                valor_default = sit["saldo"] if sit["saldo"] > 0 else float(al.get("valor_pacote") or al.get("valor_aula") or 0.0)
+                                f_valor_pag = st.number_input("Valor recebido (R$)", min_value=0.01, value=max(0.01, valor_default), key=f"valor_pag_{al['id']}")
+                                f_desc_pag = st.text_input("Descrição", value="Renovação de pacote" if al.get("tipo_cobranca") == "pacote" else "Pagamento avulso", key=f"desc_pag_{al['id']}")
+
+                                if st.form_submit_button("✅ Confirmar Pagamento", type="primary", use_container_width=True):
+                                    with st.spinner("Registrando pagamento..."):
+                                        preparar_cliente()
+                                        try:
+                                            supabase.table("transacoes").insert({
+                                                "user_id": user_id,
+                                                "aluno_id": al["id"],
+                                                "valor": f_valor_pag,
+                                                "descricao": f_desc_pag,
+                                                "data_pagamento": hoje.isoformat()
+                                            }).execute()
+
+                                            if al.get("tipo_cobranca") == "pacote":
+                                                novas_aulas = al.get("total_aulas_pacote") or 10
+                                                supabase.table("alunos").update({
+                                                    "aulas_restantes": (al.get("aulas_restantes") or 0) + novas_aulas
+                                                }).eq("id", al["id"]).execute()
+
+                                            st.success("Pagamento registrado!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error("Não foi possível registrar o pagamento. Tente novamente em instantes.")
 
         with tab_caixa:
             st.markdown("### 📈 Fluxo de Caixa e Metas")
-            
-            faturado_total = sum([float(al.get('valor_pago') or 0.0) for al in alunos_todos])
-            a_receber = sum([max(0.0, (float(al.get('valor_pacote') or 0.0) if al.get('tipo_cobranca') == 'pacote' else (((al.get('presencas') or 0) + (al.get('faltas') or 0)) * float(al.get('valor_aula') or 0.0))) - float(al.get('valor_pago') or 0.0)) for al in alunos_todos])
+
+            faturado_total = 0.0
+            faturado_mes = 0.0
+            a_receber = 0.0
+            for al in alunos_todos:
+                sit = situacao_financeira(al, transacoes_todas, hoje)
+                faturado_total += sit["pago_total"]
+                a_receber += sit["saldo"]
+
+            for t in transacoes_todas:
+                d_pag = parse_data_pagamento(t.get("data_pagamento"))
+                if d_pag and d_pag.month == hoje.month and d_pag.year == hoje.year:
+                    faturado_mes += float(t.get("valor") or 0.0)
 
             col_c1, col_c2 = st.columns(2)
-            col_c1.metric("Total Arrecadado", f"R$ {faturado_total:.2f}")
+            col_c1.metric("Total Arrecadado (histórico)", f"R$ {faturado_total:.2f}")
             col_c2.metric("Total Pendente", f"R$ {a_receber:.2f}")
 
             st.divider()
@@ -969,6 +1094,6 @@ else:
             meta_input = st.number_input("Defina sua Meta Mensal (R$):", min_value=0.0, value=5000.0, step=500.0)
             
             if meta_input > 0:
-                progresso = min(1.0, faturado_total / meta_input)
+                progresso = min(1.0, faturado_mes / meta_input)
                 st.progress(progresso)
-                st.caption(f"Você atingiu **{progresso * 100:.1f}%** da sua meta (R$ {faturado_total:.2f} / R$ {meta_input:.2f}).")
+                st.caption(f"Você atingiu **{progresso * 100:.1f}%** da meta em {hoje.strftime('%m/%Y')} (R$ {faturado_mes:.2f} / R$ {meta_input:.2f}).")
