@@ -107,6 +107,41 @@ def aplicar_estilo_customizado():
             margin: 2rem 0 !important;
             border-color: rgba(255, 255, 255, 0.08) !important;
         }
+
+        /* ==========================================
+           AJUSTES DE UX PARA PWA / MOBILE
+           ========================================== */
+
+        /* Reduz o efeito de "puxar pra atualizar" do navegador, deixando
+           a rolagem mais parecida com a de um app nativo instalado. */
+        html, body {
+            overscroll-behavior-y: contain;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-text-size-adjust: 100%;
+        }
+
+        /* Respeita a área segura do iPhone (notch / status bar / home
+           indicator) quando o app está instalado em tela cheia. */
+        [data-testid="stAppViewContainer"] {
+            padding-top: env(safe-area-inset-top) !important;
+            padding-bottom: env(safe-area-inset-bottom) !important;
+        }
+
+        /* No Safari/iOS, campo de texto com fonte menor que 16px faz a
+           tela dar zoom sozinha ao tocar. Isso trava esse comportamento. */
+        .stTextInput input,
+        .stNumberInput input,
+        .stDateInput input,
+        .stTimeInput input,
+        .stSelectbox [data-baseweb="select"] {
+            font-size: 16px !important;
+        }
+
+        /* Alvo de toque mínimo confortável (~44px, referência Apple/Google
+           HIG) nos botões, importante em tela sensível ao toque. */
+        .stButton>button {
+            min-height: 44px !important;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -468,24 +503,83 @@ else:
             "headerToolbar": {
                 "left": "today prev,next",
                 "center": "title",
-                "right": "timeGridDay,timeGridWeek,dayGridMonth"
+                "right": "listWeek,timeGridDay,timeGridWeek,dayGridMonth"
             },
-            "initialView": "timeGridWeek",
-            "slotMinTime": "05:00:00",
-            "slotMaxTime": "23:00:00",
+            # Lista é a visão inicial: grade de 7 colunas é ilegível em tela de
+            # celular. Grade e mês continuam a um toque de distância no menu.
+            "initialView": "listWeek",
+            "slotMinTime": "06:00:00",
+            "slotMaxTime": "22:00:00",
+            "slotDuration": "00:30:00",
+            "nowIndicator": True,
+            "height": 620,
             "locale": "pt-br"
         }
 
         calendar(events=eventos_calendario, options=opcoes_calendario, custom_css="""
             .fc-event-title { font-weight: bold; font-size: 14px; }
+
+            /* Botões da toolbar (hoje / navegação / trocar visão) na paleta do app */
+            .fc .fc-button {
+                background: rgba(46, 204, 113, 0.12) !important;
+                border: 1px solid rgba(46, 204, 113, 0.35) !important;
+                color: #2ECC71 !important;
+                text-transform: capitalize !important;
+                border-radius: 10px !important;
+                padding: 8px 14px !important;
+                min-height: 40px !important;
+                box-shadow: none !important;
+                font-weight: 600 !important;
+            }
+            .fc .fc-button:hover {
+                background: rgba(46, 204, 113, 0.22) !important;
+            }
+            .fc .fc-button-primary:not(:disabled).fc-button-active,
+            .fc .fc-button-primary:not(:disabled):active {
+                background: #2ECC71 !important;
+                border-color: #2ECC71 !important;
+                color: #FFFFFF !important;
+            }
+            .fc .fc-toolbar-title {
+                font-size: 17px !important;
+                font-weight: 700 !important;
+            }
+            .fc .fc-toolbar {
+                flex-wrap: wrap !important;
+                gap: 8px !important;
+                row-gap: 10px !important;
+            }
+            /* Dia atual em verde suave, em vez do azul padrão do FullCalendar */
+            .fc .fc-day-today {
+                background: rgba(46, 204, 113, 0.10) !important;
+            }
+            .fc .fc-list-day-cushion {
+                background: rgba(46, 204, 113, 0.08) !important;
+            }
+            /* Alvo de toque maior nos itens da visão em lista */
+            .fc .fc-list-event td {
+                padding-top: 10px !important;
+                padding-bottom: 10px !important;
+            }
         """)
+
+        # Legenda de cores — os status só existem como cor no calendário,
+        # então sem isso não dá pra saber o que cada cor significa.
+        st.markdown("""
+            <div style="display:flex; flex-wrap:wrap; gap:14px; padding:10px 4px 4px 4px; font-size:13px;">
+                <span style="display:flex; align-items:center; gap:6px;"><span style="width:10px;height:10px;border-radius:50%;background:#3788d8;display:inline-block;"></span>Agendado</span>
+                <span style="display:flex; align-items:center; gap:6px;"><span style="width:10px;height:10px;border-radius:50%;background:#2ECC71;display:inline-block;"></span>Presença</span>
+                <span style="display:flex; align-items:center; gap:6px;"><span style="width:10px;height:10px;border-radius:50%;background:#E74C3C;display:inline-block;"></span>Falta cobrada</span>
+                <span style="display:flex; align-items:center; gap:6px;"><span style="width:10px;height:10px;border-radius:50%;background:#F39C12;display:inline-block;"></span>Falta não cobrada</span>
+                <span style="display:flex; align-items:center; gap:6px;"><span style="width:10px;height:10px;border-radius:50%;background:#95A5A6;display:inline-block;"></span>Desmarcado</span>
+            </div>
+        """, unsafe_allow_html=True)
 
         st.divider()
 
-        c_agendar, c_gerenciar = st.columns(2)
-        
-        with c_agendar:
-            st.markdown("### ➕ Novo Agendamento")
+        tab_agendar, tab_gerenciar = st.tabs(["➕ Novo Agendamento", "⚙️ Gerenciar Presenças/Faltas"])
+
+        with tab_agendar:
             mapa_nomes = {al["nome"]: al["id"] for al in alunos_todos}
             if mapa_nomes:
                 with st.form("form_agendar"):
@@ -506,8 +600,7 @@ else:
                         except Exception as e:
                             st.error(f"Erro ao agendar: {e}")
 
-        with c_gerenciar:
-            st.markdown("### ⚙️ Gerenciar Presenças / Faltas")
+        with tab_gerenciar:
             agendamentos_ativos = [ag for ag in agendamentos if ag["status"] == "agendado"]
             
             if not agendamentos_ativos:
