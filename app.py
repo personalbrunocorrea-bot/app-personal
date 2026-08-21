@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from datetime import datetime, date, timedelta
 from supabase import create_client, Client
 from streamlit_option_menu import option_menu
@@ -110,6 +111,65 @@ def aplicar_estilo_customizado():
     """, unsafe_allow_html=True)
 
 aplicar_estilo_customizado()
+
+# ==========================================
+# PWA: manifest, ícone e service worker
+# ==========================================
+# O Streamlit renderiza st.components.v1.html dentro de um <iframe>, então
+# não dá pra simplesmente colocar <link rel="manifest"> num st.markdown —
+# o navegador só reconhece isso se estiver no <head> do documento
+# principal. Como o iframe é da mesma origem, o script consegue alcançar
+# window.parent.document e injetar as tags lá. Isso precisa rodar em toda
+# página (login, dashboard e a página pública do PAR-Q), por isso a
+# chamada fica aqui em cima, antes de qualquer bifurcação de tela.
+def injetar_pwa():
+    components.html("""
+        <script>
+        (function() {
+            const doc = window.parent.document;
+
+            function addTag(tag, attrs) {
+                const selector = tag + Object.entries(attrs)
+                    .map(([k, v]) => k === 'href' || k === 'content' ? '' : `[${k}="${v}"]`)
+                    .join('');
+                if (doc.querySelector('link[rel="manifest"]') && attrs.rel === 'manifest') return;
+                const el = doc.createElement(tag);
+                Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+                doc.head.appendChild(el);
+            }
+
+            if (!doc.querySelector('link[rel="manifest"]')) {
+                addTag('link', {rel: 'manifest', href: 'app/static/manifest.json'});
+            }
+            if (!doc.querySelector('meta[name="theme-color"]')) {
+                addTag('meta', {name: 'theme-color', content: '#2ECC71'});
+            }
+            if (!doc.querySelector('link[rel="apple-touch-icon"]')) {
+                addTag('link', {rel: 'apple-touch-icon', href: 'app/static/icon-192.png'});
+            }
+            if (!doc.querySelector('meta[name="apple-mobile-web-app-capable"]')) {
+                addTag('meta', {name: 'apple-mobile-web-app-capable', content: 'yes'});
+            }
+            if (!doc.querySelector('meta[name="mobile-web-app-capable"]')) {
+                addTag('meta', {name: 'mobile-web-app-capable', content: 'yes'});
+            }
+            if (!doc.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')) {
+                addTag('meta', {name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent'});
+            }
+            if (!doc.querySelector('meta[name="apple-mobile-web-app-title"]')) {
+                addTag('meta', {name: 'apple-mobile-web-app-title', content: 'PT Assistente'});
+            }
+
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('app/static/sw.js').catch(function(err) {
+                    console.log('Falha ao registrar service worker:', err);
+                });
+            }
+        })();
+        </script>
+    """, height=0, width=0)
+
+injetar_pwa()
 
 # ==========================================
 # CONEXÃO SUPABASE
