@@ -380,6 +380,48 @@ def situacao_financeira(aluno, transacoes_todas, hoje_data):
         "ultimo_pagamento": ultimo_pagamento,
     }
 
+ROTULOS_STATUS = {
+    "agendado": ("⏳", "Agendado", "#3788d8"),
+    "presenca": ("✅", "Presença", "#2ECC71"),
+    "falta_cobrada": ("❌", "Falta cobrada", "#E74C3C"),
+    "falta_nao_cobrada": ("⚠️", "Falta não cobrada", "#F39C12"),
+    "desmarcado": ("⚪", "Desmarcado", "#95A5A6"),
+}
+
+def calcular_efeito(status, tipo_cobranca):
+    # Retorna (delta_presencas, delta_faltas, delta_aulas_restantes)
+    # que um status causa no saldo do aluno.
+    if status == "presenca":
+        return (1, 0, -1 if tipo_cobranca == "pacote" else 0)
+    elif status == "falta_cobrada":
+        return (0, 1, -1 if tipo_cobranca == "pacote" else 0)
+    return (0, 0, 0)  # falta_nao_cobrada, desmarcado, agendado
+
+def aplicar_status(ag, aluno, novo_status):
+    # Compartilhada pelo popup de clique no calendário e pela aba
+    # "Gerenciar Presenças/Faltas" — um só lugar calcula o efeito no
+    # saldo do aluno, então os dois pontos de entrada nunca divergem.
+    status_antigo = ag.get("status", "agendado")
+    if status_antigo == novo_status:
+        return
+
+    old_p, old_f, old_a = calcular_efeito(status_antigo, aluno.get("tipo_cobranca"))
+    new_p, new_f, new_a = calcular_efeito(novo_status, aluno.get("tipo_cobranca"))
+
+    upd_aluno = {
+        "presencas": max(0, (aluno.get("presencas") or 0) - old_p + new_p),
+        "faltas": max(0, (aluno.get("faltas") or 0) - old_f + new_f),
+        "aulas_restantes": max(0, (aluno.get("aulas_restantes") or 0) - old_a + new_a),
+    }
+
+    preparar_cliente()
+    try:
+        supabase.table("agendamentos").update({"status": novo_status}).eq("id", ag["id"]).execute()
+        supabase.table("alunos").update(upd_aluno).eq("id", aluno["id"]).execute()
+        st.rerun()
+    except Exception as e:
+        st.error("Não foi possível atualizar o status. Tente novamente em instantes.")
+
 hoje = date.today()
 
 # ------------------------------------------
@@ -559,6 +601,7 @@ else:
                 dt_fim = dt_inicio
 
             eventos_calendario.append({
+                "id": str(ag["id"]),
                 "title": f"{nome} ({status.replace('_', ' ').title()})",
                 "start": dt_inicio,
                 "end": dt_fim,
@@ -583,7 +626,7 @@ else:
             "locale": "pt-br"
         }
 
-        calendar(events=eventos_calendario, options=opcoes_calendario, custom_css="""
+        calendar_state = calendar(events=eventos_calendario, options=opcoes_calendario, key="agenda_calendario", custom_css="""
             .fc-event-title { font-weight: bold; font-size: 14px; }
 
             /* Botões da toolbar (hoje / navegação / trocar visão) na paleta do app */
@@ -629,6 +672,58 @@ else:
                 padding-bottom: 10px !important;
             }
         """)
+
+        # --- POPUP DE AÇÃO RÁPIDA (clique no evento, estilo Google Agenda) ---
+        if "agenda_popup_ag_id" not in st.session_state:
+            st.session_state.agenda_popup_ag_id = None
+
+        if calendar_state and calendar_state.get("callback") == "eventClick":
+            clique_id = calendar_state.get("eventClick", {}).get("event", {}).get("id")
+            if clique_id:
+                st.session_state.agenda_popup_ag_id = clique_id
+
+        if st.session_state.agenda_popup_ag_id:
+            ag_clicado = next((a for a in agendamentos if str(a["id"]) == str(st.session_state.agenda_popup_ag_id)), None)
+            aluno_clicado = mapa_alunos_id.get(ag_clicado["aluno_id"]) if ag_clicado else None
+
+            if ag_clicado and aluno_clicado:
+                status_atual_pop = ag_clicado.get("status", "agendado")
+                dt_pop = parse_data_hora(ag_clicado["data_hora"])
+
+                with st.container(border=True):
+                    col_pop_info, col_pop_fechar = st.columns([5, 1])
+                    with col_pop_info:
+                        st.markdown(f"**{dt_pop.strftime('%d/%m — %H:%M')} · {aluno_clicado['nome']}**")
+                        emoji_pop, label_pop, cor_pop = ROTULOS_STATUS.get(status_atual_pop, ("⏳", "Agendado", "#3788d8"))
+                        st.caption(f"Status atual: {emoji_pop} {label_pop}")
+                    with col_pop_fechar:
+                        if st.button("✖", key="fechar_popup_agenda", help="Fechar"):
+                            st.session_state.agenda_popup_ag_id = None
+                            st.rerun()
+
+                    pb1, pb2 = st.columns(2)
+                    with pb1:
+                        if st.button("✅ Presença", key="pop_presenca", use_container_width=True,
+                                     type="primary" if status_atual_pop == "presenca" else "secondary"):
+                            aplicar_status(ag_clicado, aluno_clicado, "presenca")
+                    with pb2:
+                        if st.button("❌ Falta cobrada", key="pop_faltac", use_container_width=True,
+                                     type="primary" if status_atual_pop == "falta_cobrada" else "secondary"):
+                            aplicar_status(ag_clicado, aluno_clicado, "falta_cobrada")
+
+                    pb3, pb4 = st.columns(2)
+                    with pb3:
+                        if st.button("⚠️ Falta não cobrada", key="pop_faltal", use_container_width=True,
+                                     type="primary" if status_atual_pop == "falta_nao_cobrada" else "secondary"):
+                            aplicar_status(ag_clicado, aluno_clicado, "falta_nao_cobrada")
+                    with pb4:
+                        if st.button("⚪ Desmarcado", key="pop_desm", use_container_width=True,
+                                     type="primary" if status_atual_pop == "desmarcado" else "secondary"):
+                            aplicar_status(ag_clicado, aluno_clicado, "desmarcado")
+            else:
+                # A aula clicada não existe mais na lista atual (ex: fora do
+                # intervalo carregado) — limpa pra não deixar popup fantasma.
+                st.session_state.agenda_popup_ag_id = None
 
         # Legenda de cores — os status só existem como cor no calendário,
         # então sem isso não dá pra saber o que cada cor significa.
@@ -681,47 +776,6 @@ else:
             if not agendamentos_dia:
                 st.info(f"Nenhuma aula agendada para {data_filtro.strftime('%d/%m/%Y')}.")
             else:
-                rotulos_status = {
-                    "agendado": ("⏳", "Agendado", "#3788d8"),
-                    "presenca": ("✅", "Presença", "#2ECC71"),
-                    "falta_cobrada": ("❌", "Falta cobrada", "#E74C3C"),
-                    "falta_nao_cobrada": ("⚠️", "Falta não cobrada", "#F39C12"),
-                    "desmarcado": ("⚪", "Desmarcado", "#95A5A6"),
-                }
-
-                def calcular_efeito(status, tipo_cobranca):
-                    # Retorna (delta_presencas, delta_faltas, delta_aulas_restantes)
-                    # que um status causa no saldo do aluno.
-                    if status == "presenca":
-                        return (1, 0, -1 if tipo_cobranca == "pacote" else 0)
-                    elif status == "falta_cobrada":
-                        return (0, 1, -1 if tipo_cobranca == "pacote" else 0)
-                    return (0, 0, 0)  # falta_nao_cobrada, desmarcado, agendado
-
-                def aplicar_status(ag, aluno, novo_status):
-                    status_antigo = ag.get("status", "agendado")
-                    if status_antigo == novo_status:
-                        return
-
-                    old_p, old_f, old_a = calcular_efeito(status_antigo, aluno.get("tipo_cobranca"))
-                    new_p, new_f, new_a = calcular_efeito(novo_status, aluno.get("tipo_cobranca"))
-
-                    # Desfaz o efeito do status antigo e aplica o novo — isso é
-                    # o que permite corrigir uma marcação já feita com segurança.
-                    upd_aluno = {
-                        "presencas": max(0, (aluno.get("presencas") or 0) - old_p + new_p),
-                        "faltas": max(0, (aluno.get("faltas") or 0) - old_f + new_f),
-                        "aulas_restantes": max(0, (aluno.get("aulas_restantes") or 0) - old_a + new_a),
-                    }
-
-                    preparar_cliente()
-                    try:
-                        supabase.table("agendamentos").update({"status": novo_status}).eq("id", ag["id"]).execute()
-                        supabase.table("alunos").update(upd_aluno).eq("id", aluno["id"]).execute()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro ao atualizar status: {e}")
-
                 for ag in agendamentos_dia:
                     aluno_dados = mapa_alunos_id.get(ag["aluno_id"])
                     if not aluno_dados:
@@ -738,7 +792,7 @@ else:
                             if ag.get("local"):
                                 st.caption(f"📍 {ag['local']}")
                         with col_badge:
-                            emoji, label, cor = rotulos_status.get(status_atual, ("⏳", "Agendado", "#3788d8"))
+                            emoji, label, cor = ROTULOS_STATUS.get(status_atual, ("⏳", "Agendado", "#3788d8"))
                             texto_tag = "⏰ Atrasado" if atrasado else f"{emoji} {label}"
                             cor_tag = "#E74C3C" if atrasado else cor
                             st.markdown(
