@@ -126,11 +126,16 @@ supabase: Client = init_supabase()
 # ==========================================
 # MODO AUTOATENDIMENTO: PAR-Q DO ALUNO
 # ==========================================
+# ALTERADO: em vez de consultar/gravar diretamente na tabela `alunos`
+# (o que exigia RLS desativado para o anon funcionar), este bloco agora
+# chama duas funções RPC (SECURITY DEFINER) no Postgres: get_aluno_por_token
+# e responder_parq. A tabela `alunos` permanece protegida por RLS o tempo
+# todo; só essas duas funções, bem estreitas, têm permissão de bypass.
 token_aluno = st.query_params.get("token", None)
 
 if token_aluno:
     try:
-        res_p = supabase.table("alunos").select("*").eq("parq_token", token_aluno).execute()
+        res_p = supabase.rpc("get_aluno_por_token", {"p_token": token_aluno}).execute()
         aluno_parq = res_p.data[0] if res_p.data else None
     except Exception as e:
         aluno_parq = None
@@ -143,7 +148,7 @@ if token_aluno:
     st.markdown(f"Olá, **{aluno_parq['nome']}**! Para garantir sua segurança durante os treinos, por favor responda com atenção às perguntas abaixo.")
     
     if aluno_parq.get("parq_status") == "assinado":
-        dt_ass = aluno_parq.get("parq_data", "")[:10]
+        dt_ass = (aluno_parq.get("parq_data") or "")[:10]
         st.success(f"✅ Você já preencheu e assinou este questionário em **{dt_ass}**. Obrigado pela cooperação!")
         st.stop()
 
@@ -169,17 +174,18 @@ if token_aluno:
                 st.error("Você precisa marcar a caixa de confirmação para enviar o termo.")
             else:
                 respostas_json = {"q1": q1, "q2": q2, "q3": q3, "q4": q4, "q5": q5, "q6": q6, "q7": q7}
-                data_hoje_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
+
                 try:
-                    supabase.table("alunos").update({
-                        "parq_status": "assinado",
-                        "parq_respostas": respostas_json,
-                        "parq_data": data_hoje_str
-                    }).eq("id", aluno_parq["id"]).execute()
-                    
-                    st.balloons()
-                    st.success("✅ PAR-Q enviado com sucesso! O seu Personal Trainer já recebeu sua confirmação. Bons treinos!")
+                    res_ok = supabase.rpc("responder_parq", {
+                        "p_token": token_aluno,
+                        "p_respostas": respostas_json
+                    }).execute()
+
+                    if res_ok.data:
+                        st.balloons()
+                        st.success("✅ PAR-Q enviado com sucesso! O seu Personal Trainer já recebeu sua confirmação. Bons treinos!")
+                    else:
+                        st.error("Não foi possível confirmar o envio. Verifique se o link ainda é válido.")
                 except Exception as e:
                     st.error(f"Erro ao salvar PAR-Q: {e}")
     st.stop()
