@@ -601,58 +601,105 @@ else:
                             st.error(f"Erro ao agendar: {e}")
 
         with tab_gerenciar:
-            agendamentos_ativos = [ag for ag in agendamentos if ag["status"] == "agendado"]
-            
-            if not agendamentos_ativos:
-                st.info("Nenhum agendamento pendente no momento.")
+            st.caption("Toque direto no status para marcar. Já marcou errado? É só tocar no status certo — o app corrige o saldo do aluno automaticamente.")
+
+            data_filtro = st.date_input("Ver aulas do dia:", value=hoje, key="filtro_data_gerenciar")
+
+            agendamentos_dia = [
+                ag for ag in agendamentos
+                if datetime.fromisoformat(ag["data_hora"]).date() == data_filtro
+            ]
+            agendamentos_dia.sort(key=lambda ag: ag["data_hora"])
+
+            if not agendamentos_dia:
+                st.info(f"Nenhuma aula agendada para {data_filtro.strftime('%d/%m/%Y')}.")
             else:
-                opcoes_gerenciar = {}
-                for ag in agendamentos_ativos:
-                    nome = mapa_alunos_id.get(ag["aluno_id"], {}).get("nome", "Desconhecido")
-                    dt_str = datetime.fromisoformat(ag["data_hora"]).strftime("%d/%m às %H:%M")
-                    label = f"{nome} - {dt_str}"
-                    opcoes_gerenciar[label] = ag
-                
-                aula_selecionada = st.selectbox("Selecione a Aula:", list(opcoes_gerenciar.keys()))
-                ag_selecionado = opcoes_gerenciar[aula_selecionada]
-                aluno_dados = mapa_alunos_id.get(ag_selecionado["aluno_id"])
-                
-                novo_status = st.radio("Qual o resultado da aula?", 
-                    ["Presença ✅", "Falta Cobrada ❌", "Falta Não Cobrada ⚠️", "Desmarcado ⚪"], horizontal=True)
-                
-                if st.button("Confirmar Status", type="primary", use_container_width=True):
-                    upd_aluno = {}
-                    str_status_db = "agendado"
-                    
-                    if "Presença" in novo_status:
-                        str_status_db = "presenca"
-                        upd_aluno["presencas"] = (aluno_dados.get("presencas") or 0) + 1
-                        if aluno_dados.get("tipo_cobranca") == "pacote":
-                            upd_aluno["aulas_restantes"] = max(0, (aluno_dados.get("aulas_restantes") or 0) - 1)
-                    
-                    elif "Falta Cobrada" in novo_status:
-                        str_status_db = "falta_cobrada"
-                        upd_aluno["faltas"] = (aluno_dados.get("faltas") or 0) + 1
-                        if aluno_dados.get("tipo_cobranca") == "pacote":
-                            upd_aluno["aulas_restantes"] = max(0, (aluno_dados.get("aulas_restantes") or 0) - 1)
-                    
-                    elif "Falta Não Cobrada" in novo_status:
-                        str_status_db = "falta_nao_cobrada"
-                    
-                    elif "Desmarcado" in novo_status:
-                        str_status_db = "desmarcado"
-                        
+                rotulos_status = {
+                    "agendado": ("⏳", "Agendado", "#3788d8"),
+                    "presenca": ("✅", "Presença", "#2ECC71"),
+                    "falta_cobrada": ("❌", "Falta cobrada", "#E74C3C"),
+                    "falta_nao_cobrada": ("⚠️", "Falta não cobrada", "#F39C12"),
+                    "desmarcado": ("⚪", "Desmarcado", "#95A5A6"),
+                }
+
+                def calcular_efeito(status, tipo_cobranca):
+                    # Retorna (delta_presencas, delta_faltas, delta_aulas_restantes)
+                    # que um status causa no saldo do aluno.
+                    if status == "presenca":
+                        return (1, 0, -1 if tipo_cobranca == "pacote" else 0)
+                    elif status == "falta_cobrada":
+                        return (0, 1, -1 if tipo_cobranca == "pacote" else 0)
+                    return (0, 0, 0)  # falta_nao_cobrada, desmarcado, agendado
+
+                def aplicar_status(ag, aluno, novo_status):
+                    status_antigo = ag.get("status", "agendado")
+                    if status_antigo == novo_status:
+                        return
+
+                    old_p, old_f, old_a = calcular_efeito(status_antigo, aluno.get("tipo_cobranca"))
+                    new_p, new_f, new_a = calcular_efeito(novo_status, aluno.get("tipo_cobranca"))
+
+                    # Desfaz o efeito do status antigo e aplica o novo — isso é
+                    # o que permite corrigir uma marcação já feita com segurança.
+                    upd_aluno = {
+                        "presencas": max(0, (aluno.get("presencas") or 0) - old_p + new_p),
+                        "faltas": max(0, (aluno.get("faltas") or 0) - old_f + new_f),
+                        "aulas_restantes": max(0, (aluno.get("aulas_restantes") or 0) - old_a + new_a),
+                    }
+
                     preparar_cliente()
                     try:
-                        supabase.table("agendamentos").update({"status": str_status_db}).eq("id", ag_selecionado["id"]).execute()
-                        
-                        if upd_aluno:
-                            supabase.table("alunos").update(upd_aluno).eq("id", aluno_dados["id"]).execute()
-                            
-                        st.success("Status atualizado com sucesso!")
+                        supabase.table("agendamentos").update({"status": novo_status}).eq("id", ag["id"]).execute()
+                        supabase.table("alunos").update(upd_aluno).eq("id", aluno["id"]).execute()
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao atualizar status: {e}")
+
+                for ag in agendamentos_dia:
+                    aluno_dados = mapa_alunos_id.get(ag["aluno_id"])
+                    if not aluno_dados:
+                        continue
+
+                    status_atual = ag.get("status", "agendado")
+                    hr_str = datetime.fromisoformat(ag["data_hora"]).strftime("%H:%M")
+                    atrasado = status_atual == "agendado" and datetime.fromisoformat(ag["data_hora"]) < datetime.now()
+
+                    with st.container(border=True):
+                        col_info, col_badge = st.columns([3, 1.4])
+                        with col_info:
+                            st.markdown(f"**{hr_str} — {aluno_dados['nome']}**")
+                            if ag.get("local"):
+                                st.caption(f"📍 {ag['local']}")
+                        with col_badge:
+                            emoji, label, cor = rotulos_status.get(status_atual, ("⏳", "Agendado", "#3788d8"))
+                            texto_tag = "⏰ Atrasado" if atrasado else f"{emoji} {label}"
+                            cor_tag = "#E74C3C" if atrasado else cor
+                            st.markdown(
+                                f"<div style='text-align:right; padding-top:6px;'>"
+                                f"<span style='background:{cor_tag}22; color:{cor_tag}; padding:3px 10px; "
+                                f"border-radius:20px; font-size:12px; font-weight:600;'>{texto_tag}</span></div>",
+                                unsafe_allow_html=True
+                            )
+
+                        b1, b2 = st.columns(2)
+                        with b1:
+                            if st.button("✅ Presença", key=f"presenca_{ag['id']}", use_container_width=True,
+                                         type="primary" if status_atual == "presenca" else "secondary"):
+                                aplicar_status(ag, aluno_dados, "presenca")
+                        with b2:
+                            if st.button("❌ Falta cobrada", key=f"faltac_{ag['id']}", use_container_width=True,
+                                         type="primary" if status_atual == "falta_cobrada" else "secondary"):
+                                aplicar_status(ag, aluno_dados, "falta_cobrada")
+
+                        b3, b4 = st.columns(2)
+                        with b3:
+                            if st.button("⚠️ Falta não cobrada", key=f"faltal_{ag['id']}", use_container_width=True,
+                                         type="primary" if status_atual == "falta_nao_cobrada" else "secondary"):
+                                aplicar_status(ag, aluno_dados, "falta_nao_cobrada")
+                        with b4:
+                            if st.button("⚪ Desmarcado", key=f"desm_{ag['id']}", use_container_width=True,
+                                         type="primary" if status_atual == "desmarcado" else "secondary"):
+                                aplicar_status(ag, aluno_dados, "desmarcado")
 
     # ------------------------------------------
     # 3. ALUNOS & CRM (EDIÇÃO DE PERFIL)
