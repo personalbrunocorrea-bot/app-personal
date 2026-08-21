@@ -297,6 +297,20 @@ def preparar_cliente():
     if st.session_state.session:
         supabase.postgrest.auth(st.session_state.session.access_token)
 
+def parse_data_hora(valor_iso):
+    """Faz parse de um timestamp vindo do Supabase e sempre devolve um
+    datetime 'naive' (sem timezone). O Postgres devolve timestamptz com
+    o fuso embutido (ex: '+00:00'), o que gera um datetime 'aware' — e
+    comparar isso com datetime.now() (naive) quebra com TypeError. Como
+    o resto do app já trabalha só com horário local naive (datetime.now(),
+    datetime.combine(...)), a solução mais simples e consistente é
+    descartar o fuso aqui, uma única vez, para todo mundo usar.
+    """
+    dt = datetime.fromisoformat(valor_iso)
+    if dt.tzinfo is not None:
+        dt = dt.replace(tzinfo=None)
+    return dt
+
 def carregar_alunos(user_id):
     preparar_cliente()
     try:
@@ -486,7 +500,7 @@ else:
             dt_inicio = ag["data_hora"]
             
             try:
-                dt_fim_obj = datetime.fromisoformat(dt_inicio) + timedelta(hours=1)
+                dt_fim_obj = parse_data_hora(dt_inicio) + timedelta(hours=1)
                 dt_fim = dt_fim_obj.isoformat()
             except:
                 dt_fim = dt_inicio
@@ -607,7 +621,7 @@ else:
 
             agendamentos_dia = [
                 ag for ag in agendamentos
-                if datetime.fromisoformat(ag["data_hora"]).date() == data_filtro
+                if parse_data_hora(ag["data_hora"]).date() == data_filtro
             ]
             agendamentos_dia.sort(key=lambda ag: ag["data_hora"])
 
@@ -661,8 +675,8 @@ else:
                         continue
 
                     status_atual = ag.get("status", "agendado")
-                    hr_str = datetime.fromisoformat(ag["data_hora"]).strftime("%H:%M")
-                    atrasado = status_atual == "agendado" and datetime.fromisoformat(ag["data_hora"]) < datetime.now()
+                    hr_str = parse_data_hora(ag["data_hora"]).strftime("%H:%M")
+                    atrasado = status_atual == "agendado" and parse_data_hora(ag["data_hora"]) < datetime.now()
 
                     with st.container(border=True):
                         col_info, col_badge = st.columns([3, 1.4])
