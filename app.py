@@ -511,6 +511,98 @@ def excluir_agendamento(ag, aluno):
     except Exception as e:
         st.error("Não foi possível excluir o agendamento. Tente novamente em instantes.")
 
+HORIZONTE_RECORRENCIA_DIAS = 56  # 8 semanas — mantido sempre à frente automaticamente
+
+def gerar_serie_recorrente(user_id, aluno_id, local, dt_primeira_aula, ate_data):
+    """Cria as ocorrências semanais de uma aula fixa, da primeira data até
+    `ate_data`, todas com o mesmo recorrencia_id. Usada tanto na criação
+    inicial quanto para 'completar' uma série já existente."""
+    recorrencia_id = str(uuid.uuid4())
+    novas_linhas = []
+    cursor = dt_primeira_aula
+    while cursor.date() <= ate_data:
+        novas_linhas.append({
+            "user_id": user_id,
+            "aluno_id": aluno_id,
+            "data_hora": cursor.isoformat(),
+            "local": local,
+            "status": "agendado",
+            "recorrencia_id": recorrencia_id
+        })
+        cursor += timedelta(days=7)
+    if novas_linhas:
+        preparar_cliente()
+        supabase.table("agendamentos").insert(novas_linhas).execute()
+    return recorrencia_id
+
+def manter_series_recorrentes_atualizadas(user_id, agendamentos_todos):
+    """Roda a cada carregamento da Agenda: para cada série de aula fixa,
+    se a última ocorrência já gerada está a menos de 8 semanas de hoje,
+    completa automaticamente até a nova data-limite. Assim o trainer
+    nunca precisa 'renovar' a recorrência manualmente."""
+    series = {}
+    for ag in agendamentos_todos:
+        rid = ag.get("recorrencia_id")
+        if not rid:
+            continue
+        dt_ag = parse_data_hora(ag["data_hora"])
+        if rid not in series or dt_ag > series[rid]["ultima_data"]:
+            series[rid] = {"ultima_data": dt_ag, "aluno_id": ag["aluno_id"], "local": ag.get("local", "")}
+
+    limite = hoje + timedelta(days=HORIZONTE_RECORRENCIA_DIAS)
+    algo_mudou = False
+    for rid, info in series.items():
+        if info["ultima_data"].date() < limite:
+            proxima = info["ultima_data"] + timedelta(days=7)
+            novas_linhas = []
+            cursor = proxima
+            while cursor.date() <= limite:
+                novas_linhas.append({
+                    "user_id": user_id,
+                    "aluno_id": info["aluno_id"],
+                    "data_hora": cursor.isoformat(),
+                    "local": info["local"],
+                    "status": "agendado",
+                    "recorrencia_id": rid
+                })
+                cursor += timedelta(days=7)
+            if novas_linhas:
+                preparar_cliente()
+                supabase.table("agendamentos").insert(novas_linhas).execute()
+                algo_mudou = True
+    return algo_mudou
+
+def calcular_relatorio_mensal(alunos_todos, agendamentos_todos, ano, mes):
+    """Aulas realizadas (status=presenca) por aluno no mês, e o valor
+    correspondente. Pacote usa o valor proporcional por aula (valor do
+    pacote dividido pelas aulas que ele contém); por_aula usa o valor
+    avulso direto."""
+    linhas = []
+    for al in alunos_todos:
+        aulas_mes = [
+            ag for ag in agendamentos_todos
+            if ag.get("aluno_id") == al["id"]
+            and ag.get("status") == "presenca"
+            and parse_data_hora(ag["data_hora"]).year == ano
+            and parse_data_hora(ag["data_hora"]).month == mes
+        ]
+        qtd = len(aulas_mes)
+        if qtd == 0:
+            continue
+
+        if al.get("tipo_cobranca") == "pacote":
+            total_pacote = al.get("total_aulas_pacote") or 0
+            valor_unit = (float(al.get("valor_pacote") or 0.0) / total_pacote) if total_pacote > 0 else 0.0
+        else:
+            valor_unit = float(al.get("valor_aula") or 0.0)
+
+        linhas.append({
+            "Aluno": al["nome"],
+            "Aulas no mês": qtd,
+            "Valor total (R$)": round(qtd * valor_unit, 2)
+        })
+    return linhas
+
 hoje = date.today()
 
 # ------------------------------------------
@@ -665,6 +757,16 @@ else:
             agendamentos = []
             st.error(f"Erro ao carregar agendamentos: {e}")
 
+        # Completa automaticamente qualquer série de aula fixa que esteja
+        # ficando curta (menos de 8 semanas geradas à frente), sem precisar
+        # que o trainer faça nada — só de abrir a Agenda já mantém em dia.
+        try:
+            if manter_series_recorrentes_atualizadas(user_id, agendamentos):
+                res_ag = supabase.table("agendamentos").select("*").eq("user_id", user_id).gte("data_hora", inicio_mes).execute()
+                agendamentos = res_ag.data if res_ag.data else []
+        except Exception:
+            pass  # manutenção de recorrência não deve travar a Agenda se falhar
+
         mapa_alunos_id = {al["id"]: al for al in alunos_todos}
         
         eventos_calendario = []
@@ -721,10 +823,13 @@ else:
             "slotDuration": "00:30:00",
             "nowIndicator": True,
             "height": 620,
-            "locale": "pt-br"
+            "locale": "pt-br",
+            "editable": True,          # permite arrastar o evento pra outro horário
+            "eventStartEditable": True,
+            "eventDurationEditable": False  # duração fixa de 1h, só a hora de início muda
         }
 
-        calendar_state = calendar(events=eventos_calendario, options=opcoes_calendario, key="agenda_calendario", callbacks=["eventClick", "dateClick"], custom_css="""
+        calendar_state = calendar(events=eventos_calendario, options=opcoes_calendario, key="agenda_calendario", callbacks=["eventClick", "dateClick", "eventChange"], custom_css="""
             .fc-event-title { font-weight: bold; font-size: 14px; }
 
             /* Botões da toolbar (hoje / navegação / trocar visão) na paleta do app */
@@ -791,6 +896,9 @@ else:
             assinatura_clique = ("eventClick", calendar_state.get("eventClick", {}).get("event", {}).get("id"))
         elif calendar_state and calendar_state.get("callback") == "dateClick":
             assinatura_clique = ("dateClick", calendar_state.get("dateClick", {}).get("dateStr"))
+        elif calendar_state and calendar_state.get("callback") == "eventChange":
+            evento_mudado = calendar_state.get("eventChange", {}).get("event", {})
+            assinatura_clique = ("eventChange", evento_mudado.get("id"), evento_mudado.get("start"))
 
         if assinatura_clique and assinatura_clique != st.session_state.agenda_ultimo_clique:
             st.session_state.agenda_ultimo_clique = assinatura_clique
@@ -812,6 +920,27 @@ else:
                     dt_slot = datetime.combine(dt_slot.date(), datetime.strptime("08:00", "%H:%M").time())
                 st.session_state.agenda_novo_slot = dt_slot.isoformat()
                 st.session_state.agenda_popup_ag_id = None  # só um sheet por vez
+
+            elif assinatura_clique[0] == "eventChange":
+                # Arrastou o evento pra outro horário — reagendar do jeito
+                # rápido, "arrastar e soltar" (mesma ideia do Google Agenda).
+                ag_id_arrastado, novo_inicio_str = assinatura_clique[1], assinatura_clique[2]
+                ag_arrastado = next((a for a in agendamentos if str(a["id"]) == str(ag_id_arrastado)), None)
+                if ag_arrastado and novo_inicio_str:
+                    try:
+                        novo_inicio = parse_data_hora(novo_inicio_str)
+                        preparar_cliente()
+                        supabase.table("agendamentos").update({"data_hora": novo_inicio.isoformat()}).eq("id", ag_arrastado["id"]).execute()
+
+                        conflito_drag = any(
+                            horarios_conflitam(novo_inicio, parse_data_hora(a["data_hora"]))
+                            and a.get("status") == "agendado" and str(a["id"]) != str(ag_arrastado["id"])
+                            for a in agendamentos
+                        )
+                        st.toast("⚠️ Reagendado, mas já existe outro aluno nesse horário." if conflito_drag else "✅ Aula reagendada.", icon="⚠️" if conflito_drag else "✅")
+                        st.rerun()
+                    except Exception:
+                        st.toast("⚠️ Não foi possível reagendar. Tente novamente.", icon="⚠️")
 
         # --- Sheet 1: marcar presença/falta/desmarcação ---
         if st.session_state.agenda_popup_ag_id:
@@ -913,6 +1042,8 @@ else:
                     dt_fim_preview = dt_inicio_preview + DURACAO_AULA
                     st.caption(f"🕐 Aula de 1 hora — vai ficar marcada das **{dt_inicio_preview.strftime('%H:%M')}** às **{dt_fim_preview.strftime('%H:%M')}**")
 
+                    fixa_sheet = st.checkbox("🔁 Aula fixa (repete toda semana neste mesmo dia e horário)", key=f"sheet_fixa_{sufixo_key}")
+
                     if st.button("Confirmar Agendamento", key=f"confirmar_sheet_{sufixo_key}", type="primary", use_container_width=True):
                         conflito = any(
                             horarios_conflitam(dt_inicio_preview, parse_data_hora(a["data_hora"]))
@@ -923,13 +1054,17 @@ else:
                         with st.spinner("Agendando..."):
                             preparar_cliente()
                             try:
-                                supabase.table("agendamentos").insert({
-                                    "user_id": user_id,
-                                    "aluno_id": mapa_nomes_sheet[aluno_novo_nome],
-                                    "data_hora": dt_inicio_preview.isoformat(),
-                                    "local": local_novo_sheet,
-                                    "status": "agendado"
-                                }).execute()
+                                if fixa_sheet:
+                                    limite_sheet = hoje + timedelta(days=HORIZONTE_RECORRENCIA_DIAS)
+                                    gerar_serie_recorrente(user_id, mapa_nomes_sheet[aluno_novo_nome], local_novo_sheet, dt_inicio_preview, limite_sheet)
+                                else:
+                                    supabase.table("agendamentos").insert({
+                                        "user_id": user_id,
+                                        "aluno_id": mapa_nomes_sheet[aluno_novo_nome],
+                                        "data_hora": dt_inicio_preview.isoformat(),
+                                        "local": local_novo_sheet,
+                                        "status": "agendado"
+                                    }).execute()
                                 st.session_state.agenda_novo_slot = None
                                 if conflito:
                                     st.toast("⚠️ Já existe outro aluno agendado nesse mesmo horário.", icon="⚠️")
@@ -965,6 +1100,8 @@ else:
                 dt_fim_preview_tab = dt_final_preview + DURACAO_AULA
                 st.caption(f"🕐 Aula de 1 hora — vai ficar marcada das **{dt_final_preview.strftime('%H:%M')}** às **{dt_fim_preview_tab.strftime('%H:%M')}**")
 
+                fixa_tab = st.checkbox("🔁 Aula fixa (repete toda semana neste mesmo dia e horário)", key="tab_agendar_fixa")
+
                 if st.button("Agendar Horário", key="tab_agendar_confirmar", type="primary"):
                     conflito_ag = any(
                         horarios_conflitam(dt_final_preview, parse_data_hora(a["data_hora"]))
@@ -975,10 +1112,14 @@ else:
                     with st.spinner("Agendando..."):
                         preparar_cliente()
                         try:
-                            supabase.table("agendamentos").insert({
-                                "user_id": user_id, "aluno_id": mapa_nomes[al_nome],
-                                "data_hora": dt_final_preview.isoformat(), "local": local_ag, "status": "agendado"
-                            }).execute()
+                            if fixa_tab:
+                                limite_tab = hoje + timedelta(days=HORIZONTE_RECORRENCIA_DIAS)
+                                gerar_serie_recorrente(user_id, mapa_nomes[al_nome], local_ag, dt_final_preview, limite_tab)
+                            else:
+                                supabase.table("agendamentos").insert({
+                                    "user_id": user_id, "aluno_id": mapa_nomes[al_nome],
+                                    "data_hora": dt_final_preview.isoformat(), "local": local_ag, "status": "agendado"
+                                }).execute()
                             if conflito_ag:
                                 st.toast("⚠️ Já existe outro aluno agendado nesse mesmo horário.", icon="⚠️")
                             st.success("Agendado!")
@@ -1276,7 +1417,7 @@ else:
     elif menu == "💰 Financeiro":
         st.title("💰 Gestão Financeira")
         
-        tab_alunos, tab_caixa, tab_config = st.tabs(["Mensalidades (Cobrança)", "Fluxo de Caixa e Metas", "Configuração PIX"])
+        tab_alunos, tab_caixa, tab_relatorio, tab_config = st.tabs(["Mensalidades (Cobrança)", "Fluxo de Caixa e Metas", "📄 Relatório Mensal", "Configuração PIX"])
         
         with tab_config:
             st.markdown("### Configurar Mensagem de Cobrança")
@@ -1284,6 +1425,53 @@ else:
             if st.button("Salvar Chave"):
                 st.session_state.chave_pix = chave
                 st.success("Chave salva para esta sessão!")
+
+        with tab_relatorio:
+            st.markdown("### 📄 Aulas realizadas por aluno, no mês")
+            st.caption("Conta as aulas marcadas como Presença e calcula o valor correspondente (proporcional, no caso de pacote).")
+
+            col_mes, col_ano = st.columns(2)
+            with col_mes:
+                mes_relatorio = st.selectbox("Mês", list(range(1, 13)), index=hoje.month - 1,
+                                              format_func=lambda m: ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"][m-1])
+            with col_ano:
+                ano_relatorio = st.number_input("Ano", min_value=2020, max_value=2100, value=hoje.year, step=1)
+
+            preparar_cliente()
+            try:
+                res_rel = supabase.table("agendamentos").select("*").eq("user_id", user_id).execute()
+                agendamentos_relatorio = res_rel.data if res_rel.data else []
+            except Exception as e:
+                agendamentos_relatorio = []
+                st.error("Não foi possível carregar os dados do relatório.")
+
+            linhas_relatorio = calcular_relatorio_mensal(alunos_todos, agendamentos_relatorio, ano_relatorio, mes_relatorio)
+
+            if not linhas_relatorio:
+                st.info("Nenhuma aula com presença registrada nesse mês.")
+            else:
+                st.dataframe(linhas_relatorio, use_container_width=True, hide_index=True)
+
+                total_aulas_rel = sum(l["Aulas no mês"] for l in linhas_relatorio)
+                total_valor_rel = sum(l["Valor total (R$)"] for l in linhas_relatorio)
+                cr1, cr2 = st.columns(2)
+                cr1.metric("Total de aulas no mês", total_aulas_rel)
+                cr2.metric("Valor total no mês", f"R$ {total_valor_rel:.2f}")
+
+                import csv
+                import io
+                buffer_csv = io.StringIO()
+                escritor = csv.DictWriter(buffer_csv, fieldnames=["Aluno", "Aulas no mês", "Valor total (R$)"])
+                escritor.writeheader()
+                escritor.writerows(linhas_relatorio)
+
+                st.download_button(
+                    "⬇️ Baixar relatório (CSV)",
+                    data=buffer_csv.getvalue(),
+                    file_name=f"relatorio_{ano_relatorio}_{mes_relatorio:02d}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
 
         with tab_alunos:
             st.markdown("### Status de Pagamento")
