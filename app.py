@@ -423,6 +423,17 @@ def situacao_financeira(aluno, transacoes_todas, hoje_data):
         "ultimo_pagamento": ultimo_pagamento,
     }
 
+DURACAO_AULA = timedelta(hours=1)
+
+def horarios_conflitam(inicio1, inicio2, duracao=DURACAO_AULA):
+    """Duas aulas conflitam se os intervalos [início, início+duração) se
+    sobrepõem — não só quando começam no mesmo minuto exato. Ex: aula A
+    às 14:00 e aula B às 14:30, ambas de 1h, conflitam mesmo sem começar
+    no mesmo horário."""
+    fim1 = inicio1 + duracao
+    fim2 = inicio2 + duracao
+    return inicio1 < fim2 and inicio2 < fim1
+
 ROTULOS_STATUS = {
     "agendado": ("⏳", "Agendado", "#3788d8"),
     "presenca": ("✅", "Presença", "#2ECC71"),
@@ -638,7 +649,7 @@ else:
             dt_inicio = ag["data_hora"]
             
             try:
-                dt_fim_obj = parse_data_hora(dt_inicio) + timedelta(hours=1)
+                dt_fim_obj = parse_data_hora(dt_inicio) + DURACAO_AULA
                 dt_fim = dt_fim_obj.isoformat()
             except:
                 dt_fim = dt_inicio
@@ -724,27 +735,41 @@ else:
             st.session_state.agenda_popup_ag_id = None
         if "agenda_novo_slot" not in st.session_state:
             st.session_state.agenda_novo_slot = None
+        if "agenda_ultimo_clique" not in st.session_state:
+            st.session_state.agenda_ultimo_clique = None
 
+        # O componente do calendário devolve o último clique registrado em
+        # TODA atualização da tela, não só quando um clique novo acontece —
+        # inclusive logo depois de fechar o sheet pelo botão ✖. Sem esse
+        # controle, o clique antigo reabria o sheet na hora, travando-o.
+        # A solução é comparar com o último clique já processado e só agir
+        # se for realmente diferente.
+        assinatura_clique = None
         if calendar_state and calendar_state.get("callback") == "eventClick":
-            clique_id = calendar_state.get("eventClick", {}).get("event", {}).get("id")
-            if clique_id:
-                st.session_state.agenda_popup_ag_id = clique_id
+            assinatura_clique = ("eventClick", calendar_state.get("eventClick", {}).get("event", {}).get("id"))
+        elif calendar_state and calendar_state.get("callback") == "dateClick":
+            assinatura_clique = ("dateClick", calendar_state.get("dateClick", {}).get("dateStr"))
+
+        if assinatura_clique and assinatura_clique != st.session_state.agenda_ultimo_clique:
+            st.session_state.agenda_ultimo_clique = assinatura_clique
+
+            if assinatura_clique[0] == "eventClick" and assinatura_clique[1]:
+                st.session_state.agenda_popup_ag_id = assinatura_clique[1]
                 st.session_state.agenda_novo_slot = None  # só um sheet por vez
 
-        elif calendar_state and calendar_state.get("callback") == "dateClick":
-            info_clique = calendar_state.get("dateClick", {})
-            data_str_clique = info_clique.get("dateStr", "")
-            all_day_clique = info_clique.get("allDay", True)
-            try:
-                dt_slot = parse_data_hora(data_str_clique)
-            except Exception:
-                dt_slot = datetime.combine(hoje, datetime.now().time())
-            if all_day_clique:
-                # Clicou num dia (visão de mês/lista), sem horário —
-                # assume um horário padrão que o trainer ajusta no sheet.
-                dt_slot = datetime.combine(dt_slot.date(), datetime.strptime("08:00", "%H:%M").time())
-            st.session_state.agenda_novo_slot = dt_slot.isoformat()
-            st.session_state.agenda_popup_ag_id = None  # só um sheet por vez
+            elif assinatura_clique[0] == "dateClick":
+                info_clique = calendar_state.get("dateClick", {})
+                all_day_clique = info_clique.get("allDay", True)
+                try:
+                    dt_slot = parse_data_hora(assinatura_clique[1])
+                except Exception:
+                    dt_slot = datetime.combine(hoje, datetime.now().time())
+                if all_day_clique:
+                    # Clicou num dia (visão de mês), sem horário — assume
+                    # um horário padrão que o trainer ajusta no sheet.
+                    dt_slot = datetime.combine(dt_slot.date(), datetime.strptime("08:00", "%H:%M").time())
+                st.session_state.agenda_novo_slot = dt_slot.isoformat()
+                st.session_state.agenda_popup_ag_id = None  # só um sheet por vez
 
         # --- Sheet 1: marcar presença/falta/desmarcação ---
         if st.session_state.agenda_popup_ag_id:
@@ -822,7 +847,8 @@ else:
                             dt_final_sheet = datetime.combine(data_novo_sheet, hora_novo_sheet)
 
                             conflito = any(
-                                parse_data_hora(a["data_hora"]) == dt_final_sheet and a.get("status") == "agendado"
+                                horarios_conflitam(dt_final_sheet, parse_data_hora(a["data_hora"]))
+                                and a.get("status") == "agendado"
                                 for a in agendamentos
                             )
 
@@ -869,16 +895,26 @@ else:
                     local_ag = st.text_input("📍 Local da Aula")
                     if st.form_submit_button("Agendar Horário"):
                         dt_final = datetime.combine(dt_ag, hr_ag)
-                        preparar_cliente()
-                        try:
-                            supabase.table("agendamentos").insert({
-                                "user_id": user_id, "aluno_id": mapa_nomes[al_nome],
-                                "data_hora": dt_final.isoformat(), "local": local_ag, "status": "agendado"
-                            }).execute()
-                            st.success("Agendado!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erro ao agendar: {e}")
+
+                        conflito_ag = any(
+                            horarios_conflitam(dt_final, parse_data_hora(a["data_hora"]))
+                            and a.get("status") == "agendado"
+                            for a in agendamentos
+                        )
+
+                        with st.spinner("Agendando..."):
+                            preparar_cliente()
+                            try:
+                                supabase.table("agendamentos").insert({
+                                    "user_id": user_id, "aluno_id": mapa_nomes[al_nome],
+                                    "data_hora": dt_final.isoformat(), "local": local_ag, "status": "agendado"
+                                }).execute()
+                                if conflito_ag:
+                                    st.toast("⚠️ Já existe outro aluno agendado nesse mesmo horário.", icon="⚠️")
+                                st.success("Agendado!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error("Não foi possível agendar. Tente novamente em instantes.")
 
         with tab_gerenciar:
             st.caption("Toque direto no status para marcar. Já marcou errado? É só tocar no status certo — o app corrige o saldo do aluno automaticamente.")
