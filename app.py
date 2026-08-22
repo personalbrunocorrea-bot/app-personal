@@ -464,27 +464,39 @@ def calcular_efeito(status, tipo_cobranca):
         return (0, 1, -1 if tipo_cobranca == "pacote" else 0)
     return (0, 0, 0)  # falta_nao_cobrada, desmarcado, agendado
 
-def aplicar_status(ag, aluno, novo_status):
+def aplicar_status(ag, aluno, novo_status, observacao=None):
     # Compartilhada pelo popup de clique no calendário e pela aba
     # "Gerenciar Presenças/Faltas" — um só lugar calcula o efeito no
     # saldo do aluno, então os dois pontos de entrada nunca divergem.
     status_antigo = ag.get("status", "agendado")
-    if status_antigo == novo_status:
+    mudou_status = status_antigo != novo_status
+    mudou_obs = observacao is not None and observacao != (ag.get("observacao") or "")
+
+    if not mudou_status and not mudou_obs:
         return
 
-    old_p, old_f, old_a = calcular_efeito(status_antigo, aluno.get("tipo_cobranca"))
-    new_p, new_f, new_a = calcular_efeito(novo_status, aluno.get("tipo_cobranca"))
+    upd_agendamento = {}
+    upd_aluno = {}
 
-    upd_aluno = {
-        "presencas": max(0, (aluno.get("presencas") or 0) - old_p + new_p),
-        "faltas": max(0, (aluno.get("faltas") or 0) - old_f + new_f),
-        "aulas_restantes": max(0, (aluno.get("aulas_restantes") or 0) - old_a + new_a),
-    }
+    if mudou_status:
+        upd_agendamento["status"] = novo_status
+        old_p, old_f, old_a = calcular_efeito(status_antigo, aluno.get("tipo_cobranca"))
+        new_p, new_f, new_a = calcular_efeito(novo_status, aluno.get("tipo_cobranca"))
+        upd_aluno = {
+            "presencas": max(0, (aluno.get("presencas") or 0) - old_p + new_p),
+            "faltas": max(0, (aluno.get("faltas") or 0) - old_f + new_f),
+            "aulas_restantes": max(0, (aluno.get("aulas_restantes") or 0) - old_a + new_a),
+        }
+
+    if mudou_obs:
+        upd_agendamento["observacao"] = observacao
 
     preparar_cliente()
     try:
-        supabase.table("agendamentos").update({"status": novo_status}).eq("id", ag["id"]).execute()
-        supabase.table("alunos").update(upd_aluno).eq("id", aluno["id"]).execute()
+        if upd_agendamento:
+            supabase.table("agendamentos").update(upd_agendamento).eq("id", ag["id"]).execute()
+        if upd_aluno:
+            supabase.table("alunos").update(upd_aluno).eq("id", aluno["id"]).execute()
         st.rerun()
     except Exception as e:
         st.error("Não foi possível atualizar o status. Tente novamente em instantes.")
@@ -512,64 +524,90 @@ def excluir_agendamento(ag, aluno):
         st.error("Não foi possível excluir o agendamento. Tente novamente em instantes.")
 
 HORIZONTE_RECORRENCIA_DIAS = 56  # 8 semanas — mantido sempre à frente automaticamente
+DIAS_SEMANA_PT = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"]
 
-def gerar_serie_recorrente(user_id, aluno_id, local, dt_primeira_aula, ate_data):
-    """Cria as ocorrências semanais de uma aula fixa, da primeira data até
-    `ate_data`, todas com o mesmo recorrencia_id. Usada tanto na criação
-    inicial quanto para 'completar' uma série já existente."""
-    recorrencia_id = str(uuid.uuid4())
+def proxima_ocorrencia(dia_semana, hora, a_partir_de):
+    dias_ate = (dia_semana - a_partir_de.weekday()) % 7
+    data_alvo = a_partir_de + timedelta(days=dias_ate)
+    return datetime.combine(data_alvo, hora)
+
+def criar_horario_fixo(user_id, aluno_id, primeira_data_hora, local):
+    """Registra um novo horário fixo (linha em series_recorrentes) e já
+    gera as ocorrências semanais até o horizonte de 8 semanas."""
+    preparar_cliente()
+    dia_semana = primeira_data_hora.weekday()
+    hora = primeira_data_hora.time()
+    res = supabase.table("series_recorrentes").insert({
+        "user_id": user_id, "aluno_id": aluno_id,
+        "dia_semana": dia_semana, "hora": hora.strftime("%H:%M:%S"),
+        "local": local, "ativa": True
+    }).execute()
+    serie_id = res.data[0]["id"]
+
+    limite = hoje + timedelta(days=HORIZONTE_RECORRENCIA_DIAS)
     novas_linhas = []
-    cursor = dt_primeira_aula
-    while cursor.date() <= ate_data:
+    cursor = primeira_data_hora
+    while cursor.date() <= limite:
         novas_linhas.append({
-            "user_id": user_id,
-            "aluno_id": aluno_id,
-            "data_hora": cursor.isoformat(),
-            "local": local,
-            "status": "agendado",
-            "recorrencia_id": recorrencia_id
+            "user_id": user_id, "aluno_id": aluno_id, "data_hora": cursor.isoformat(),
+            "local": local, "status": "agendado", "recorrencia_id": serie_id
         })
         cursor += timedelta(days=7)
     if novas_linhas:
-        preparar_cliente()
         supabase.table("agendamentos").insert(novas_linhas).execute()
-    return recorrencia_id
+    return serie_id
 
-def manter_series_recorrentes_atualizadas(user_id, agendamentos_todos):
-    """Roda a cada carregamento da Agenda: para cada série de aula fixa,
-    se a última ocorrência já gerada está a menos de 8 semanas de hoje,
-    completa automaticamente até a nova data-limite. Assim o trainer
-    nunca precisa 'renovar' a recorrência manualmente."""
-    series = {}
-    for ag in agendamentos_todos:
-        rid = ag.get("recorrencia_id")
-        if not rid:
-            continue
-        dt_ag = parse_data_hora(ag["data_hora"])
-        if rid not in series or dt_ag > series[rid]["ultima_data"]:
-            series[rid] = {"ultima_data": dt_ag, "aluno_id": ag["aluno_id"], "local": ag.get("local", "")}
+def parar_horario_fixo(serie_id):
+    """Marca a série como inativa (para de gerar ocorrências novas) e
+    remove só as ocorrências futuras ainda não realizadas — o histórico
+    de aulas já dadas (presença/falta) permanece intacto."""
+    preparar_cliente()
+    supabase.table("series_recorrentes").update({"ativa": False}).eq("id", serie_id).execute()
+    supabase.table("agendamentos").delete().eq("recorrencia_id", serie_id).eq("status", "agendado").gte("data_hora", datetime.now().isoformat()).execute()
+
+def manter_series_recorrentes_atualizadas(user_id):
+    """Roda a cada carregamento da Agenda: para cada horário fixo ATIVO
+    (tabela series_recorrentes), garante que existam ocorrências geradas
+    até 8 semanas à frente, completando o que faltar. O trainer nunca
+    precisa 'renovar' manualmente."""
+    preparar_cliente()
+    try:
+        res = supabase.table("series_recorrentes").select("*").eq("user_id", user_id).eq("ativa", True).execute()
+        series_ativas = res.data if res.data else []
+    except Exception:
+        return False
+
+    if not series_ativas:
+        return False
 
     limite = hoje + timedelta(days=HORIZONTE_RECORRENCIA_DIAS)
     algo_mudou = False
-    for rid, info in series.items():
-        if info["ultima_data"].date() < limite:
-            proxima = info["ultima_data"] + timedelta(days=7)
-            novas_linhas = []
-            cursor = proxima
-            while cursor.date() <= limite:
-                novas_linhas.append({
-                    "user_id": user_id,
-                    "aluno_id": info["aluno_id"],
-                    "data_hora": cursor.isoformat(),
-                    "local": info["local"],
-                    "status": "agendado",
-                    "recorrencia_id": rid
-                })
-                cursor += timedelta(days=7)
-            if novas_linhas:
-                preparar_cliente()
-                supabase.table("agendamentos").insert(novas_linhas).execute()
-                algo_mudou = True
+
+    for serie in series_ativas:
+        try:
+            res_ult = supabase.table("agendamentos").select("data_hora").eq("recorrencia_id", serie["id"]).order("data_hora", desc=True).limit(1).execute()
+            ultima = parse_data_hora(res_ult.data[0]["data_hora"]) if res_ult.data else None
+        except Exception:
+            ultima = None
+
+        hora_serie = datetime.strptime(str(serie["hora"])[:8], "%H:%M:%S").time()
+        proxima = (ultima + timedelta(days=7)) if ultima else proxima_ocorrencia(serie["dia_semana"], hora_serie, hoje)
+
+        if proxima.date() > limite:
+            continue
+
+        novas_linhas = []
+        cursor = proxima
+        while cursor.date() <= limite:
+            novas_linhas.append({
+                "user_id": user_id, "aluno_id": serie["aluno_id"], "data_hora": cursor.isoformat(),
+                "local": serie.get("local") or "", "status": "agendado", "recorrencia_id": serie["id"]
+            })
+            cursor += timedelta(days=7)
+        if novas_linhas:
+            supabase.table("agendamentos").insert(novas_linhas).execute()
+            algo_mudou = True
+
     return algo_mudou
 
 def calcular_relatorio_mensal(alunos_todos, agendamentos_todos, ano, mes):
@@ -641,6 +679,16 @@ else:
     user_id = st.session_state.user.id
     alunos_todos = carregar_alunos(user_id)
     transacoes_todas = carregar_transacoes(user_id)
+
+    def carregar_series_recorrentes(user_id):
+        preparar_cliente()
+        try:
+            res = supabase.table("series_recorrentes").select("*").eq("user_id", user_id).eq("ativa", True).execute()
+            return res.data if res.data else []
+        except Exception:
+            return []
+
+    series_recorrentes_todas = carregar_series_recorrentes(user_id)
 
     with st.sidebar:
         menu = option_menu(
@@ -761,7 +809,7 @@ else:
         # ficando curta (menos de 8 semanas geradas à frente), sem precisar
         # que o trainer faça nada — só de abrir a Agenda já mantém em dia.
         try:
-            if manter_series_recorrentes_atualizadas(user_id, agendamentos):
+            if manter_series_recorrentes_atualizadas(user_id):
                 res_ag = supabase.table("agendamentos").select("*").eq("user_id", user_id).gte("data_hora", inicio_mes).execute()
                 agendamentos = res_ag.data if res_ag.data else []
         except Exception:
@@ -963,25 +1011,28 @@ else:
                             st.session_state.agenda_popup_ag_id = None
                             st.rerun()
 
+                    obs_pop = st.text_area("📝 O que foi treinado / observação", value=ag_clicado.get("observacao") or "",
+                                            key=f"obs_{ag_clicado['id']}", height=68, placeholder="Ex: treino de pernas, aluno relatou dor no joelho...")
+
                     pb1, pb2 = st.columns(2)
                     with pb1:
                         if st.button("✅ Presença", key="pop_presenca", use_container_width=True,
                                      type="primary" if status_atual_pop == "presenca" else "secondary"):
-                            aplicar_status(ag_clicado, aluno_clicado, "presenca")
+                            aplicar_status(ag_clicado, aluno_clicado, "presenca", observacao=obs_pop)
                     with pb2:
                         if st.button("❌ Falta cobrada", key="pop_faltac", use_container_width=True,
                                      type="primary" if status_atual_pop == "falta_cobrada" else "secondary"):
-                            aplicar_status(ag_clicado, aluno_clicado, "falta_cobrada")
+                            aplicar_status(ag_clicado, aluno_clicado, "falta_cobrada", observacao=obs_pop)
 
                     pb3, pb4 = st.columns(2)
                     with pb3:
                         if st.button("⚠️ Falta não cobrada", key="pop_faltal", use_container_width=True,
                                      type="primary" if status_atual_pop == "falta_nao_cobrada" else "secondary"):
-                            aplicar_status(ag_clicado, aluno_clicado, "falta_nao_cobrada")
+                            aplicar_status(ag_clicado, aluno_clicado, "falta_nao_cobrada", observacao=obs_pop)
                     with pb4:
                         if st.button("⚪ Desmarcado", key="pop_desm", use_container_width=True,
                                      type="primary" if status_atual_pop == "desmarcado" else "secondary"):
-                            aplicar_status(ag_clicado, aluno_clicado, "desmarcado")
+                            aplicar_status(ag_clicado, aluno_clicado, "desmarcado", observacao=obs_pop)
 
                     st.divider()
                     if "confirmar_exclusao_ag" not in st.session_state:
@@ -1055,8 +1106,7 @@ else:
                             preparar_cliente()
                             try:
                                 if fixa_sheet:
-                                    limite_sheet = hoje + timedelta(days=HORIZONTE_RECORRENCIA_DIAS)
-                                    gerar_serie_recorrente(user_id, mapa_nomes_sheet[aluno_novo_nome], local_novo_sheet, dt_inicio_preview, limite_sheet)
+                                    criar_horario_fixo(user_id, mapa_nomes_sheet[aluno_novo_nome], dt_inicio_preview, local_novo_sheet)
                                 else:
                                     supabase.table("agendamentos").insert({
                                         "user_id": user_id,
@@ -1113,8 +1163,7 @@ else:
                         preparar_cliente()
                         try:
                             if fixa_tab:
-                                limite_tab = hoje + timedelta(days=HORIZONTE_RECORRENCIA_DIAS)
-                                gerar_serie_recorrente(user_id, mapa_nomes[al_nome], local_ag, dt_final_preview, limite_tab)
+                                criar_horario_fixo(user_id, mapa_nomes[al_nome], dt_final_preview, local_ag)
                             else:
                                 supabase.table("agendamentos").insert({
                                     "user_id": user_id, "aluno_id": mapa_nomes[al_nome],
@@ -1167,25 +1216,30 @@ else:
                                 unsafe_allow_html=True
                             )
 
+                        with st.expander("📝 Observação" + (" (preenchida)" if ag.get("observacao") else "")):
+                            obs_card = st.text_area("O que foi treinado / observação", value=ag.get("observacao") or "",
+                                                     key=f"obs_card_{ag['id']}", height=68, label_visibility="collapsed",
+                                                     placeholder="Ex: treino de pernas, aluno relatou dor no joelho...")
+
                         b1, b2 = st.columns(2)
                         with b1:
                             if st.button("✅ Presença", key=f"presenca_{ag['id']}", use_container_width=True,
                                          type="primary" if status_atual == "presenca" else "secondary"):
-                                aplicar_status(ag, aluno_dados, "presenca")
+                                aplicar_status(ag, aluno_dados, "presenca", observacao=obs_card)
                         with b2:
                             if st.button("❌ Falta cobrada", key=f"faltac_{ag['id']}", use_container_width=True,
                                          type="primary" if status_atual == "falta_cobrada" else "secondary"):
-                                aplicar_status(ag, aluno_dados, "falta_cobrada")
+                                aplicar_status(ag, aluno_dados, "falta_cobrada", observacao=obs_card)
 
                         b3, b4 = st.columns(2)
                         with b3:
                             if st.button("⚠️ Falta não cobrada", key=f"faltal_{ag['id']}", use_container_width=True,
                                          type="primary" if status_atual == "falta_nao_cobrada" else "secondary"):
-                                aplicar_status(ag, aluno_dados, "falta_nao_cobrada")
+                                aplicar_status(ag, aluno_dados, "falta_nao_cobrada", observacao=obs_card)
                         with b4:
                             if st.button("⚪ Desmarcado", key=f"desm_{ag['id']}", use_container_width=True,
                                          type="primary" if status_atual == "desmarcado" else "secondary"):
-                                aplicar_status(ag, aluno_dados, "desmarcado")
+                                aplicar_status(ag, aluno_dados, "desmarcado", observacao=obs_card)
 
     # ------------------------------------------
     # 3. ALUNOS & CRM (EDIÇÃO DE PERFIL)
@@ -1253,6 +1307,17 @@ else:
                 mapa_edicao = {al["nome"]: al for al in alunos_todos}
                 aluno_sel_nome = st.selectbox("Selecione o Aluno para Editar", list(mapa_edicao.keys()))
                 aluno_sel = mapa_edicao[aluno_sel_nome]
+
+                # --- Resumo rápido do perfil (visão geral antes de editar) ---
+                sit_resumo = situacao_financeira(aluno_sel, transacoes_todas, hoje)
+                horarios_fixos_aluno = [s for s in series_recorrentes_todas if s.get("aluno_id") == aluno_sel["id"]]
+
+                with st.container(border=True):
+                    rc1, rc2, rc3, rc4 = st.columns(4)
+                    rc1.metric("Status", "Em dia ✅" if sit_resumo["em_dia"] else "Pendente 🚨")
+                    rc2.metric("PAR-Q", "Assinado ✅" if aluno_sel.get("parq_status") == "assinado" else "Pendente ⚠️")
+                    rc3.metric("Presenças", aluno_sel.get("presencas") or 0)
+                    rc4.metric("Horários fixos", len(horarios_fixos_aluno))
 
                 with st.form("form_editar_perfil_completo"):
                     st.markdown("#### 👤 Dados Pessoais e Contato")
@@ -1356,6 +1421,42 @@ else:
                                     st.rerun()
                                 except Exception as e:
                                     st.error("Não foi possível salvar as alterações. Tente novamente em instantes.")
+
+                # --- Horários Fixos de Treino (fora do form: precisa de
+                # botões individuais de "Parar", que um st.form não permite) ---
+                st.markdown("#### 🗓️ Horários Fixos de Treino")
+                if not horarios_fixos_aluno:
+                    st.caption("Nenhum horário fixo cadastrado.")
+                else:
+                    for serie in horarios_fixos_aluno:
+                        hora_serie_fmt = str(serie["hora"])[:5]
+                        col_hf1, col_hf2 = st.columns([4, 1])
+                        with col_hf1:
+                            st.write(f"🔁 {DIAS_SEMANA_PT[serie['dia_semana']]} às {hora_serie_fmt}" + (f" — {serie['local']}" if serie.get("local") else ""))
+                        with col_hf2:
+                            if st.button("Parar", key=f"parar_fixo_{serie['id']}", use_container_width=True):
+                                with st.spinner("Parando horário fixo..."):
+                                    try:
+                                        parar_horario_fixo(serie["id"])
+                                        st.success("Horário fixo interrompido. As aulas já dadas continuam no histórico.")
+                                        st.rerun()
+                                    except Exception:
+                                        st.error("Não foi possível parar o horário fixo. Tente novamente.")
+
+                with st.expander("➕ Adicionar horário fixo"):
+                    dia_novo_fixo = st.selectbox("Dia da semana", list(range(7)), format_func=lambda d: DIAS_SEMANA_PT[d], key=f"dia_fixo_{aluno_sel['id']}")
+                    hora_novo_fixo = st.time_input("Horário", value=datetime.strptime("08:00", "%H:%M").time(), key=f"hora_fixo_{aluno_sel['id']}")
+                    local_novo_fixo = st.text_input("📍 Local", key=f"local_fixo_{aluno_sel['id']}")
+
+                    if st.button("Adicionar Horário Fixo", key=f"add_fixo_{aluno_sel['id']}", type="primary"):
+                        with st.spinner("Criando horário fixo e gerando as próximas aulas..."):
+                            try:
+                                primeira_ocorrencia = proxima_ocorrencia(dia_novo_fixo, hora_novo_fixo, hoje)
+                                criar_horario_fixo(user_id, aluno_sel["id"], primeira_ocorrencia, local_novo_fixo)
+                                st.success(f"Horário fixo criado! Próxima aula: {primeira_ocorrencia.strftime('%d/%m/%Y às %H:%M')}.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error("Não foi possível criar o horário fixo. Tente novamente.")
 
         # --- SEÇÃO CADASTRO ---
         with st.expander("➕ Cadastrar Novo Aluno"):
