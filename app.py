@@ -185,6 +185,19 @@ def aplicar_estilo_customizado():
             max-height: 80vh !important;
             overflow-y: auto !important;
         }
+
+        /* Botão de excluir agendamento — vermelho, pra ficar claramente
+           diferente das ações normais de marcar status. */
+        .st-key-pop_excluir button,
+        .st-key-confirmar_excluir_sim button {
+            background: rgba(231, 76, 60, 0.12) !important;
+            border: 1px solid rgba(231, 76, 60, 0.4) !important;
+            color: #E74C3C !important;
+        }
+        .st-key-pop_excluir button:hover,
+        .st-key-confirmar_excluir_sim button:hover {
+            background: rgba(231, 76, 60, 0.22) !important;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -476,6 +489,28 @@ def aplicar_status(ag, aluno, novo_status):
     except Exception as e:
         st.error("Não foi possível atualizar o status. Tente novamente em instantes.")
 
+def excluir_agendamento(ag, aluno):
+    # Exclui o agendamento por completo (não é o mesmo que "Desmarcado" —
+    # aquele mantém o registro, isso remove a linha do banco). Se a aula
+    # já tinha sido marcada como presença/falta cobrada, desfaz o efeito
+    # no saldo do aluno antes de excluir, senão o histórico fica errado.
+    status_atual = ag.get("status", "agendado")
+    old_p, old_f, old_a = calcular_efeito(status_atual, aluno.get("tipo_cobranca"))
+
+    preparar_cliente()
+    try:
+        supabase.table("agendamentos").delete().eq("id", ag["id"]).execute()
+        if old_p or old_f or old_a:
+            upd_aluno = {
+                "presencas": max(0, (aluno.get("presencas") or 0) - old_p),
+                "faltas": max(0, (aluno.get("faltas") or 0) - old_f),
+                "aulas_restantes": max(0, (aluno.get("aulas_restantes") or 0) - old_a),
+            }
+            supabase.table("alunos").update(upd_aluno).eq("id", aluno["id"]).execute()
+        st.rerun()
+    except Exception as e:
+        st.error("Não foi possível excluir o agendamento. Tente novamente em instantes.")
+
 hoje = date.today()
 
 # ------------------------------------------
@@ -646,13 +681,20 @@ else:
             nome = aluno.get("nome", "Desconhecido")
             status = ag.get("status", "agendado")
             cor = cores_status.get(status, "#3788d8")
-            dt_inicio = ag["data_hora"]
-            
+
             try:
-                dt_fim_obj = parse_data_hora(dt_inicio) + DURACAO_AULA
+                # start e end precisam ser normalizados pela MESMA função.
+                # Antes, start usava a string bruta do Supabase (com fuso
+                # embutido) e end usava uma versão sem fuso — o FullCalendar
+                # interpretava os dois de formas diferentes, deslocando o
+                # horário de início e inflando a duração exibida.
+                dt_inicio_obj = parse_data_hora(ag["data_hora"])
+                dt_fim_obj = dt_inicio_obj + DURACAO_AULA
+                dt_inicio = dt_inicio_obj.isoformat()
                 dt_fim = dt_fim_obj.isoformat()
-            except:
-                dt_fim = dt_inicio
+            except Exception:
+                dt_inicio = ag["data_hora"]
+                dt_fim = ag["data_hora"]
 
             eventos_calendario.append({
                 "id": str(ag["id"]),
@@ -811,6 +853,27 @@ else:
                         if st.button("⚪ Desmarcado", key="pop_desm", use_container_width=True,
                                      type="primary" if status_atual_pop == "desmarcado" else "secondary"):
                             aplicar_status(ag_clicado, aluno_clicado, "desmarcado")
+
+                    st.divider()
+                    if "confirmar_exclusao_ag" not in st.session_state:
+                        st.session_state.confirmar_exclusao_ag = None
+
+                    if st.session_state.confirmar_exclusao_ag == ag_clicado["id"]:
+                        st.warning("Excluir apaga o agendamento por completo — não dá pra desfazer. Se já tinha presença/falta marcada, o saldo do aluno é corrigido de volta.")
+                        cc1, cc2 = st.columns(2)
+                        with cc1:
+                            if st.button("🗑️ Sim, excluir", key="confirmar_excluir_sim", use_container_width=True):
+                                st.session_state.confirmar_exclusao_ag = None
+                                st.session_state.agenda_popup_ag_id = None
+                                excluir_agendamento(ag_clicado, aluno_clicado)
+                        with cc2:
+                            if st.button("Cancelar", key="confirmar_excluir_nao", use_container_width=True):
+                                st.session_state.confirmar_exclusao_ag = None
+                                st.rerun()
+                    else:
+                        if st.button("🗑️ Excluir Agendamento", key="pop_excluir", use_container_width=True):
+                            st.session_state.confirmar_exclusao_ag = ag_clicado["id"]
+                            st.rerun()
             else:
                 # A aula clicada não existe mais na lista atual (ex: fora do
                 # intervalo carregado) — limpa pra não deixar sheet fantasma.
