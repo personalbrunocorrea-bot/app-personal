@@ -142,6 +142,49 @@ def aplicar_estilo_customizado():
         .stButton>button {
             min-height: 44px !important;
         }
+
+        /* ==========================================
+           BOTTOM SHEET (popup de ação rápida da Agenda)
+           Mesmo padrão que WhatsApp/Instagram/Google Agenda mobile usam
+           pra ação rápida: painel fixo na base da tela, com fundo
+           escurecido atrás, em vez de um card que empurra o conteúdo.
+           ========================================== */
+        .agenda-popup-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 998;
+            animation: agendaFadeIn 0.2s ease;
+        }
+        @keyframes agendaFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes agendaSlideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+        .st-key-agenda_popup_sheet,
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.st-key-agenda_popup_sheet),
+        .st-key-agenda_novo_sheet,
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.st-key-agenda_novo_sheet) {
+            position: fixed !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            z-index: 999 !important;
+            max-width: 480px !important;
+            margin: 0 auto !important;
+            background: #16241c !important;
+            border: 1px solid rgba(255, 255, 255, 0.10) !important;
+            border-bottom: none !important;
+            border-radius: 20px 20px 0 0 !important;
+            box-shadow: 0 -10px 34px rgba(0, 0, 0, 0.45) !important;
+            padding: 18px 18px calc(18px + env(safe-area-inset-bottom)) 18px !important;
+            animation: agendaSlideUp 0.25s ease !important;
+            max-height: 80vh !important;
+            overflow-y: auto !important;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -613,11 +656,13 @@ else:
             "headerToolbar": {
                 "left": "today prev,next",
                 "center": "title",
-                "right": "listWeek,timeGridDay,timeGridWeek,dayGridMonth"
+                "right": "timeGridDay,timeGridWeek,dayGridMonth"
             },
-            # Lista é a visão inicial: grade de 7 colunas é ilegível em tela de
-            # celular. Grade e mês continuam a um toque de distância no menu.
-            "initialView": "listWeek",
+            # Grade Dia como padrão: mostra um dia só, então continua legível
+            # no celular (o problema original da grade semanal de 7 colunas),
+            # e ainda tem horário vazio pra tocar e agendar — o que a visão
+            # em lista não permitia.
+            "initialView": "timeGridDay",
             "slotMinTime": "06:00:00",
             "slotMaxTime": "22:00:00",
             "slotDuration": "00:30:00",
@@ -626,7 +671,7 @@ else:
             "locale": "pt-br"
         }
 
-        calendar_state = calendar(events=eventos_calendario, options=opcoes_calendario, key="agenda_calendario", custom_css="""
+        calendar_state = calendar(events=eventos_calendario, options=opcoes_calendario, key="agenda_calendario", callbacks=["eventClick", "dateClick"], custom_css="""
             .fc-event-title { font-weight: bold; font-size: 14px; }
 
             /* Botões da toolbar (hoje / navegação / trocar visão) na paleta do app */
@@ -663,25 +708,45 @@ else:
             .fc .fc-day-today {
                 background: rgba(46, 204, 113, 0.10) !important;
             }
-            .fc .fc-list-day-cushion {
-                background: rgba(46, 204, 113, 0.08) !important;
+            /* Alvo de toque maior nas células de horário da grade */
+            .fc .fc-timegrid-slot {
+                height: 2.6em !important;
             }
-            /* Alvo de toque maior nos itens da visão em lista */
-            .fc .fc-list-event td {
-                padding-top: 10px !important;
-                padding-bottom: 10px !important;
+            .fc .fc-timegrid-slot-label-cushion {
+                font-size: 12px !important;
             }
         """)
 
-        # --- POPUP DE AÇÃO RÁPIDA (clique no evento, estilo Google Agenda) ---
+        # --- BOTTOM SHEETS: ação rápida (clique no evento) e novo
+        # agendamento (clique em horário vazio) — igual ao padrão mobile
+        # do Google Agenda: painel sobe da base, fundo escurece atrás.
         if "agenda_popup_ag_id" not in st.session_state:
             st.session_state.agenda_popup_ag_id = None
+        if "agenda_novo_slot" not in st.session_state:
+            st.session_state.agenda_novo_slot = None
 
         if calendar_state and calendar_state.get("callback") == "eventClick":
             clique_id = calendar_state.get("eventClick", {}).get("event", {}).get("id")
             if clique_id:
                 st.session_state.agenda_popup_ag_id = clique_id
+                st.session_state.agenda_novo_slot = None  # só um sheet por vez
 
+        elif calendar_state and calendar_state.get("callback") == "dateClick":
+            info_clique = calendar_state.get("dateClick", {})
+            data_str_clique = info_clique.get("dateStr", "")
+            all_day_clique = info_clique.get("allDay", True)
+            try:
+                dt_slot = parse_data_hora(data_str_clique)
+            except Exception:
+                dt_slot = datetime.combine(hoje, datetime.now().time())
+            if all_day_clique:
+                # Clicou num dia (visão de mês/lista), sem horário —
+                # assume um horário padrão que o trainer ajusta no sheet.
+                dt_slot = datetime.combine(dt_slot.date(), datetime.strptime("08:00", "%H:%M").time())
+            st.session_state.agenda_novo_slot = dt_slot.isoformat()
+            st.session_state.agenda_popup_ag_id = None  # só um sheet por vez
+
+        # --- Sheet 1: marcar presença/falta/desmarcação ---
         if st.session_state.agenda_popup_ag_id:
             ag_clicado = next((a for a in agendamentos if str(a["id"]) == str(st.session_state.agenda_popup_ag_id)), None)
             aluno_clicado = mapa_alunos_id.get(ag_clicado["aluno_id"]) if ag_clicado else None
@@ -690,7 +755,8 @@ else:
                 status_atual_pop = ag_clicado.get("status", "agendado")
                 dt_pop = parse_data_hora(ag_clicado["data_hora"])
 
-                with st.container(border=True):
+                st.markdown('<div class="agenda-popup-backdrop"></div>', unsafe_allow_html=True)
+                with st.container(key="agenda_popup_sheet"):
                     col_pop_info, col_pop_fechar = st.columns([5, 1])
                     with col_pop_info:
                         st.markdown(f"**{dt_pop.strftime('%d/%m — %H:%M')} · {aluno_clicado['nome']}**")
@@ -722,8 +788,60 @@ else:
                             aplicar_status(ag_clicado, aluno_clicado, "desmarcado")
             else:
                 # A aula clicada não existe mais na lista atual (ex: fora do
-                # intervalo carregado) — limpa pra não deixar popup fantasma.
+                # intervalo carregado) — limpa pra não deixar sheet fantasma.
                 st.session_state.agenda_popup_ag_id = None
+
+        # --- Sheet 2: novo agendamento (clique em horário vazio) ---
+        if st.session_state.agenda_novo_slot:
+            dt_novo = parse_data_hora(st.session_state.agenda_novo_slot)
+            mapa_nomes_sheet = {al["nome"]: al["id"] for al in alunos_todos}
+
+            st.markdown('<div class="agenda-popup-backdrop"></div>', unsafe_allow_html=True)
+            with st.container(key="agenda_novo_sheet"):
+                col_novo_info, col_novo_fechar = st.columns([5, 1])
+                with col_novo_info:
+                    st.markdown(f"**➕ Novo agendamento — {dt_novo.strftime('%d/%m/%Y')}**")
+                with col_novo_fechar:
+                    if st.button("✖", key="fechar_novo_sheet", help="Fechar"):
+                        st.session_state.agenda_novo_slot = None
+                        st.rerun()
+
+                if not mapa_nomes_sheet:
+                    st.warning("Cadastre um aluno primeiro, na aba Alunos & CRM.")
+                else:
+                    with st.form("form_agendar_sheet"):
+                        aluno_novo_nome = st.selectbox("Aluno", list(mapa_nomes_sheet.keys()), key="sheet_aluno")
+                        col_data_sheet, col_hora_sheet = st.columns(2)
+                        with col_data_sheet:
+                            data_novo_sheet = st.date_input("Data", value=dt_novo.date(), key="sheet_data")
+                        with col_hora_sheet:
+                            hora_novo_sheet = st.time_input("Horário", value=dt_novo.time(), key="sheet_hora")
+                        local_novo_sheet = st.text_input("📍 Local", key="sheet_local")
+
+                        if st.form_submit_button("Confirmar Agendamento", type="primary", use_container_width=True):
+                            dt_final_sheet = datetime.combine(data_novo_sheet, hora_novo_sheet)
+
+                            conflito = any(
+                                parse_data_hora(a["data_hora"]) == dt_final_sheet and a.get("status") == "agendado"
+                                for a in agendamentos
+                            )
+
+                            with st.spinner("Agendando..."):
+                                preparar_cliente()
+                                try:
+                                    supabase.table("agendamentos").insert({
+                                        "user_id": user_id,
+                                        "aluno_id": mapa_nomes_sheet[aluno_novo_nome],
+                                        "data_hora": dt_final_sheet.isoformat(),
+                                        "local": local_novo_sheet,
+                                        "status": "agendado"
+                                    }).execute()
+                                    st.session_state.agenda_novo_slot = None
+                                    if conflito:
+                                        st.toast("⚠️ Já existe outro aluno agendado nesse mesmo horário.", icon="⚠️")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error("Não foi possível agendar. Tente novamente em instantes.")
 
         # Legenda de cores — os status só existem como cor no calendário,
         # então sem isso não dá pra saber o que cada cor significa.
