@@ -820,6 +820,10 @@ else:
         if st.session_state.agenda_novo_slot:
             dt_novo = parse_data_hora(st.session_state.agenda_novo_slot)
             mapa_nomes_sheet = {al["nome"]: al["id"] for al in alunos_todos}
+            # As keys incluem o horário clicado (não são fixas) — se fossem
+            # fixas, depois do primeiro clique o Streamlit ignora o valor
+            # novo e mantém sempre o primeiro horário que já foi mostrado.
+            sufixo_key = st.session_state.agenda_novo_slot
 
             st.markdown('<div class="agenda-popup-backdrop"></div>', unsafe_allow_html=True)
             with st.container(key="agenda_novo_sheet"):
@@ -834,40 +838,41 @@ else:
                 if not mapa_nomes_sheet:
                     st.warning("Cadastre um aluno primeiro, na aba Alunos & CRM.")
                 else:
-                    with st.form("form_agendar_sheet"):
-                        aluno_novo_nome = st.selectbox("Aluno", list(mapa_nomes_sheet.keys()), key="sheet_aluno")
-                        col_data_sheet, col_hora_sheet = st.columns(2)
-                        with col_data_sheet:
-                            data_novo_sheet = st.date_input("Data", value=dt_novo.date(), key="sheet_data")
-                        with col_hora_sheet:
-                            hora_novo_sheet = st.time_input("Horário", value=dt_novo.time(), key="sheet_hora")
-                        local_novo_sheet = st.text_input("📍 Local", key="sheet_local")
+                    aluno_novo_nome = st.selectbox("Aluno", list(mapa_nomes_sheet.keys()), key=f"sheet_aluno_{sufixo_key}")
+                    col_data_sheet, col_hora_sheet = st.columns(2)
+                    with col_data_sheet:
+                        data_novo_sheet = st.date_input("Data", value=dt_novo.date(), key=f"sheet_data_{sufixo_key}")
+                    with col_hora_sheet:
+                        hora_novo_sheet = st.time_input("Horário de início", value=dt_novo.time(), key=f"sheet_hora_{sufixo_key}")
+                    local_novo_sheet = st.text_input("📍 Local", key=f"sheet_local_{sufixo_key}")
 
-                        if st.form_submit_button("Confirmar Agendamento", type="primary", use_container_width=True):
-                            dt_final_sheet = datetime.combine(data_novo_sheet, hora_novo_sheet)
+                    dt_inicio_preview = datetime.combine(data_novo_sheet, hora_novo_sheet)
+                    dt_fim_preview = dt_inicio_preview + DURACAO_AULA
+                    st.caption(f"🕐 Aula de 1 hora — vai ficar marcada das **{dt_inicio_preview.strftime('%H:%M')}** às **{dt_fim_preview.strftime('%H:%M')}**")
 
-                            conflito = any(
-                                horarios_conflitam(dt_final_sheet, parse_data_hora(a["data_hora"]))
-                                and a.get("status") == "agendado"
-                                for a in agendamentos
-                            )
+                    if st.button("Confirmar Agendamento", key=f"confirmar_sheet_{sufixo_key}", type="primary", use_container_width=True):
+                        conflito = any(
+                            horarios_conflitam(dt_inicio_preview, parse_data_hora(a["data_hora"]))
+                            and a.get("status") == "agendado"
+                            for a in agendamentos
+                        )
 
-                            with st.spinner("Agendando..."):
-                                preparar_cliente()
-                                try:
-                                    supabase.table("agendamentos").insert({
-                                        "user_id": user_id,
-                                        "aluno_id": mapa_nomes_sheet[aluno_novo_nome],
-                                        "data_hora": dt_final_sheet.isoformat(),
-                                        "local": local_novo_sheet,
-                                        "status": "agendado"
-                                    }).execute()
-                                    st.session_state.agenda_novo_slot = None
-                                    if conflito:
-                                        st.toast("⚠️ Já existe outro aluno agendado nesse mesmo horário.", icon="⚠️")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error("Não foi possível agendar. Tente novamente em instantes.")
+                        with st.spinner("Agendando..."):
+                            preparar_cliente()
+                            try:
+                                supabase.table("agendamentos").insert({
+                                    "user_id": user_id,
+                                    "aluno_id": mapa_nomes_sheet[aluno_novo_nome],
+                                    "data_hora": dt_inicio_preview.isoformat(),
+                                    "local": local_novo_sheet,
+                                    "status": "agendado"
+                                }).execute()
+                                st.session_state.agenda_novo_slot = None
+                                if conflito:
+                                    st.toast("⚠️ Já existe outro aluno agendado nesse mesmo horário.", icon="⚠️")
+                                st.rerun()
+                            except Exception as e:
+                                st.error("Não foi possível agendar. Tente novamente em instantes.")
 
         # Legenda de cores — os status só existem como cor no calendário,
         # então sem isso não dá pra saber o que cada cor significa.
@@ -888,33 +893,35 @@ else:
         with tab_agendar:
             mapa_nomes = {al["nome"]: al["id"] for al in alunos_todos}
             if mapa_nomes:
-                with st.form("form_agendar"):
-                    al_nome = st.selectbox("Selecione o Aluno", list(mapa_nomes.keys()))
-                    dt_ag = st.date_input("Data", value=hoje)
-                    hr_ag = st.time_input("Horário", value=datetime.now().time())
-                    local_ag = st.text_input("📍 Local da Aula")
-                    if st.form_submit_button("Agendar Horário"):
-                        dt_final = datetime.combine(dt_ag, hr_ag)
+                al_nome = st.selectbox("Selecione o Aluno", list(mapa_nomes.keys()), key="tab_agendar_aluno")
+                dt_ag = st.date_input("Data", value=hoje, key="tab_agendar_data")
+                hr_ag = st.time_input("Horário de início", value=datetime.now().time(), key="tab_agendar_hora")
+                local_ag = st.text_input("📍 Local da Aula", key="tab_agendar_local")
 
-                        conflito_ag = any(
-                            horarios_conflitam(dt_final, parse_data_hora(a["data_hora"]))
-                            and a.get("status") == "agendado"
-                            for a in agendamentos
-                        )
+                dt_final_preview = datetime.combine(dt_ag, hr_ag)
+                dt_fim_preview_tab = dt_final_preview + DURACAO_AULA
+                st.caption(f"🕐 Aula de 1 hora — vai ficar marcada das **{dt_final_preview.strftime('%H:%M')}** às **{dt_fim_preview_tab.strftime('%H:%M')}**")
 
-                        with st.spinner("Agendando..."):
-                            preparar_cliente()
-                            try:
-                                supabase.table("agendamentos").insert({
-                                    "user_id": user_id, "aluno_id": mapa_nomes[al_nome],
-                                    "data_hora": dt_final.isoformat(), "local": local_ag, "status": "agendado"
-                                }).execute()
-                                if conflito_ag:
-                                    st.toast("⚠️ Já existe outro aluno agendado nesse mesmo horário.", icon="⚠️")
-                                st.success("Agendado!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error("Não foi possível agendar. Tente novamente em instantes.")
+                if st.button("Agendar Horário", key="tab_agendar_confirmar", type="primary"):
+                    conflito_ag = any(
+                        horarios_conflitam(dt_final_preview, parse_data_hora(a["data_hora"]))
+                        and a.get("status") == "agendado"
+                        for a in agendamentos
+                    )
+
+                    with st.spinner("Agendando..."):
+                        preparar_cliente()
+                        try:
+                            supabase.table("agendamentos").insert({
+                                "user_id": user_id, "aluno_id": mapa_nomes[al_nome],
+                                "data_hora": dt_final_preview.isoformat(), "local": local_ag, "status": "agendado"
+                            }).execute()
+                            if conflito_ag:
+                                st.toast("⚠️ Já existe outro aluno agendado nesse mesmo horário.", icon="⚠️")
+                            st.success("Agendado!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error("Não foi possível agendar. Tente novamente em instantes.")
 
         with tab_gerenciar:
             st.caption("Toque direto no status para marcar. Já marcou errado? É só tocar no status certo — o app corrige o saldo do aluno automaticamente.")
