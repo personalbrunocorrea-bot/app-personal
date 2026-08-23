@@ -17,55 +17,73 @@ def aplicar_estilo_customizado():
     st.markdown("""
         <style>
         /* Importação da fonte moderna Plus Jakarta Sans */
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
         html, body, [class*="css"] {
             font-family: 'Plus Jakarta Sans', sans-serif;
         }
 
-        /* Estilização de Cards e Bloco de Métricas (Glassmorphism) */
+        /* Fundo quase preto (identidade ProFit Control) em vez do
+           azul-acinzentado anterior. */
+        [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+            background-color: #0A0A0A !important;
+        }
+        [data-testid="stSidebar"] {
+            background-color: #0D0D0D !important;
+            border-right: 1px solid rgba(245, 130, 31, 0.15) !important;
+        }
+
+        /* Cards: fundo escuro sólido com borda fina laranja translúcida,
+           em vez do glassmorphism verde/azul anterior. */
         [data-testid="stMetric"], div[data-testid="stVerticalBlock"] > div[style*="border"] {
-            background: rgba(30, 41, 59, 0.5) !important;
-            border: 1px solid rgba(255, 255, 255, 0.08) !important;
-            border-radius: 16px !important;
-            backdrop-filter: blur(12px) !important;
-            box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.2) !important;
-            padding: 1.2rem !important;
-            transition: all 0.3s ease !important;
+            background: #0D0D0D !important;
+            border: 1px solid rgba(245, 130, 31, 0.35) !important;
+            border-radius: 14px !important;
+            box-shadow: none !important;
+            padding: 1.1rem !important;
+            transition: all 0.2s ease !important;
         }
 
-        /* Efeito de Elevação ao Passar o Mouse nos Cards */
         [data-testid="stMetric"]:hover, div[data-testid="stVerticalBlock"] > div[style*="border"]:hover {
-            transform: translateY(-3px) !important;
-            box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.3) !important;
-            border-color: rgba(46, 204, 113, 0.4) !important;
+            border-color: rgba(245, 130, 31, 0.6) !important;
         }
 
-        /* Destaque para os Valores das Métricas */
+        /* Destaque para os Valores das Métricas — laranja, cor de marca */
         [data-testid="stMetricValue"] {
-            color: #2ECC71 !important;
+            color: #F5821F !important;
             font-weight: 700 !important;
-            font-size: 28px !important;
+            font-size: 26px !important;
             letter-spacing: -0.5px !important;
         }
-
-        /* Botões com Gradiente e Sombreamento */
-        .stButton>button {
-            border-radius: 12px !important;
-            font-weight: 600 !important;
-            background: linear-gradient(135deg, #2ECC71 0%, #27AE60 100%) !important;
-            color: #FFFFFF !important;
-            border: none !important;
-            padding: 0.6rem 1.2rem !important;
-            box-shadow: 0 4px 14px rgba(46, 204, 113, 0.25) !important;
-            transition: all 0.25s ease-in-out !important;
+        [data-testid="stMetricLabel"] {
+            color: #9CA3AF !important;
         }
 
-        /* Animação do Botão no Hover */
+        /* Botões: laranja sólido, sem gradiente/glow — mais próximo do
+           estilo "pill" enxuto do app de referência. */
+        .stButton>button {
+            border-radius: 10px !important;
+            font-weight: 600 !important;
+            background: #F5821F !important;
+            color: #0A0A0A !important;
+            border: none !important;
+            padding: 0.6rem 1.2rem !important;
+            box-shadow: none !important;
+            transition: all 0.2s ease-in-out !important;
+        }
         .stButton>button:hover {
-            transform: translateY(-2px) !important;
-            box-shadow: 0 6px 20px rgba(46, 204, 113, 0.4) !important;
-            background: linear-gradient(135deg, #27AE60 0%, #219653 100%) !important;
+            background: #FF9838 !important;
+        }
+        /* Botões "secondary" (não-primários) ficam com contorno, não
+           preenchidos — pra não competir visualmente com o botão principal
+           de cada tela. */
+        .stButton>button[kind="secondary"] {
+            background: rgba(245, 130, 31, 0.10) !important;
+            border: 1px solid rgba(245, 130, 31, 0.4) !important;
+            color: #F5821F !important;
+        }
+        .stButton>button[kind="secondary"]:hover {
+            background: rgba(245, 130, 31, 0.20) !important;
         }
 
         /* Campos de Entrada (Inputs, Selects e Data) */
@@ -73,39 +91,74 @@ def aplicar_estilo_customizado():
         .stSelectbox>div>div>div, 
         .stNumberInput>div>div>input, 
         .stDateInput>div>div>input {
+            background: #0D0D0D !important;
             border-radius: 10px !important;
-            border: 1px solid rgba(255, 255, 255, 0.12) !important;
+            border: 1px solid rgba(245, 130, 31, 0.25) !important;
             transition: border-color 0.2s ease !important;
         }
 
         .stTextInput>div>div>input:focus, 
         .stSelectbox>div>div>div:focus {
-            border-color: #2ECC71 !important;
-            box-shadow: 0 0 0 2px rgba(46, 204, 113, 0.2) !important;
+            border-color: #F5821F !important;
+            box-shadow: 0 0 0 2px rgba(245, 130, 31, 0.2) !important;
         }
 
         /* Estilização das Abas (Tabs) */
         .stTabs [data-baseweb="tab-list"] {
             gap: 8px !important;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-bottom: 1px solid rgba(245, 130, 31, 0.15) !important;
         }
 
         .stTabs [data-baseweb="tab"] {
             border-radius: 8px 8px 0 0 !important;
             padding: 10px 20px !important;
             font-weight: 500 !important;
+            color: #9CA3AF !important;
         }
 
         .stTabs [aria-selected="true"] {
-            background-color: rgba(46, 204, 113, 0.15) !important;
-            color: #2ECC71 !important;
+            background-color: rgba(245, 130, 31, 0.12) !important;
+            color: #F5821F !important;
             font-weight: 600 !important;
         }
 
         /* Modificações de Divisores */
         hr {
             margin: 2rem 0 !important;
-            border-color: rgba(255, 255, 255, 0.08) !important;
+            border-color: rgba(245, 130, 31, 0.15) !important;
+        }
+
+        /* ==========================================
+           STATUS PILLS — badges de status reutilizáveis
+           (Pago/Pendente, Em dia/Atrasado etc.), no mesmo
+           estilo de cápsula colorida do app de referência.
+           ========================================== */
+        .status-pill {
+            display: inline-block;
+            padding: 3px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .status-pill-verde { background: rgba(34, 197, 94, 0.15); color: #22C55E; }
+        .status-pill-laranja { background: rgba(245, 130, 31, 0.15); color: #F5821F; }
+        .status-pill-vermelho { background: rgba(239, 68, 68, 0.15); color: #EF4444; }
+        .status-pill-cinza { background: rgba(156, 163, 175, 0.15); color: #9CA3AF; }
+
+        /* Pills de filtro/mês (Jan Fev Mar..., Todos/Presencial/Online) */
+        .filtro-pill {
+            display: inline-block;
+            padding: 5px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.05);
+            color: #9CA3AF;
+            margin-right: 6px;
+        }
+        .filtro-pill-ativo {
+            background: #F5821F;
+            color: #0A0A0A;
         }
 
         /* ==========================================
@@ -152,7 +205,7 @@ def aplicar_estilo_customizado():
         .agenda-popup-backdrop {
             position: fixed;
             inset: 0;
-            background: rgba(0, 0, 0, 0.5);
+            background: rgba(0, 0, 0, 0.6);
             z-index: 998;
             animation: agendaFadeIn 0.2s ease;
         }
@@ -175,11 +228,11 @@ def aplicar_estilo_customizado():
             z-index: 999 !important;
             max-width: 480px !important;
             margin: 0 auto !important;
-            background: #16241c !important;
-            border: 1px solid rgba(255, 255, 255, 0.10) !important;
+            background: #0D0D0D !important;
+            border: 1px solid rgba(245, 130, 31, 0.3) !important;
             border-bottom: none !important;
             border-radius: 20px 20px 0 0 !important;
-            box-shadow: 0 -10px 34px rgba(0, 0, 0, 0.45) !important;
+            box-shadow: 0 -10px 34px rgba(0, 0, 0, 0.6) !important;
             padding: 18px 18px calc(18px + env(safe-area-inset-bottom)) 18px !important;
             animation: agendaSlideUp 0.25s ease !important;
             max-height: 80vh !important;
@@ -190,13 +243,13 @@ def aplicar_estilo_customizado():
            diferente das ações normais de marcar status. */
         .st-key-pop_excluir button,
         .st-key-confirmar_excluir_sim button {
-            background: rgba(231, 76, 60, 0.12) !important;
-            border: 1px solid rgba(231, 76, 60, 0.4) !important;
-            color: #E74C3C !important;
+            background: rgba(239, 68, 68, 0.12) !important;
+            border: 1px solid rgba(239, 68, 68, 0.4) !important;
+            color: #EF4444 !important;
         }
         .st-key-pop_excluir button:hover,
         .st-key-confirmar_excluir_sim button:hover {
-            background: rgba(231, 76, 60, 0.22) !important;
+            background: rgba(239, 68, 68, 0.22) !important;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -525,6 +578,36 @@ def excluir_agendamento(ag, aluno):
 
 HORIZONTE_RECORRENCIA_DIAS = 56  # 8 semanas — mantido sempre à frente automaticamente
 DIAS_SEMANA_PT = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"]
+MESES_PT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+
+def fmt_moeda(valor):
+    """R$ 1234.5 -> 'R$ 1.234,50' (separador de milhar e decimal no
+    padrão brasileiro, em vez do formato americano padrão do Python)."""
+    return "R$ " + f"{valor:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+
+def desfazer_ultimo_pagamento(aluno, transacoes_todas):
+    """Remove a transação mais recente do aluno (ordenada por created_at,
+    não por data_pagamento — que o trainer pode ter editado). Se o aluno
+    é de pacote, desfaz também a renovação de aulas que aquele pagamento
+    gerou. Assume que o pagamento desfeito foi o mais recente de fato —
+    então isso serve pra corrigir um erro logo depois que ele aconteceu,
+    não pra editar um histórico antigo."""
+    transacoes_aluno = sorted(
+        [t for t in transacoes_todas if t.get("aluno_id") == aluno["id"]],
+        key=lambda t: t.get("created_at") or t.get("data_pagamento") or "",
+        reverse=True
+    )
+    if not transacoes_aluno:
+        return False
+    ultima = transacoes_aluno[0]
+    preparar_cliente()
+    supabase.table("transacoes").delete().eq("id", ultima["id"]).execute()
+    if aluno.get("tipo_cobranca") == "pacote":
+        novas_aulas = aluno.get("total_aulas_pacote") or 0
+        supabase.table("alunos").update({
+            "aulas_restantes": max(0, (aluno.get("aulas_restantes") or 0) - novas_aulas)
+        }).eq("id", aluno["id"]).execute()
+    return True
 
 def proxima_ocorrencia(dia_semana, hora, a_partir_de):
     dias_ate = (dia_semana - a_partir_de.weekday()) % 7
@@ -706,25 +789,82 @@ else:
     # 0. DASHBOARD GERAL
     # ------------------------------------------
     if menu == "📊 Dashboard":
-        st.title("📊 Painel de Controle (Dashboard)")
-        st.caption("Visão geral do seu estúdio e alunos")
+        st.title("📊 Dashboard")
 
-        total_alunos = len(alunos_todos)
-        total_treinos_dados = sum([(al.get("presencas") or 0) for al in alunos_todos])
-        
-        total_pago = 0.0
+        if "dash_mes_sel" not in st.session_state:
+            st.session_state.dash_mes_sel = hoje.month
+        if "dash_ano_sel" not in st.session_state:
+            st.session_state.dash_ano_sel = hoje.year
+
+        col_mes_sel, col_ano_sel = st.columns([3, 1])
+        with col_mes_sel:
+            mes_sel = st.selectbox("Mês", list(range(1, 13)), index=st.session_state.dash_mes_sel - 1,
+                                    format_func=lambda m: MESES_PT[m-1], key="dash_mes_selectbox", label_visibility="collapsed")
+        with col_ano_sel:
+            ano_sel = st.number_input("Ano", min_value=2020, max_value=2100, value=st.session_state.dash_ano_sel,
+                                       step=1, key="dash_ano_input", label_visibility="collapsed")
+        st.session_state.dash_mes_sel = mes_sel
+        st.session_state.dash_ano_sel = ano_sel
+
+        def faturado_do_mes(m, a):
+            total = 0.0
+            for t in transacoes_todas:
+                d_pag = parse_data_pagamento(t.get("data_pagamento"))
+                if d_pag and d_pag.month == m and d_pag.year == a:
+                    total += float(t.get("valor") or 0.0)
+            return total
+
+        mes_ant = mes_sel - 1 if mes_sel > 1 else 12
+        ano_ant = ano_sel if mes_sel > 1 else ano_sel - 1
+        faturado_mes_sel = faturado_do_mes(mes_sel, ano_sel)
+        faturado_mes_ant = faturado_do_mes(mes_ant, ano_ant)
+
+        if faturado_mes_ant > 0:
+            variacao_pct = (faturado_mes_sel - faturado_mes_ant) / faturado_mes_ant * 100
+        else:
+            variacao_pct = 100.0 if faturado_mes_sel > 0 else 0.0
+
+        seta = "▲" if variacao_pct >= 0 else "▼"
+        cor_var = "#22C55E" if variacao_pct >= 0 else "#EF4444"
+
+        with st.container(border=True):
+            st.caption(f"Faturamento — {MESES_PT[mes_sel-1]}/{ano_sel}")
+            st.markdown(f"<div style='font-size:34px; font-weight:800; color:#F5821F; line-height:1.2;'>{fmt_moeda(faturado_mes_sel)}</div>", unsafe_allow_html=True)
+            st.markdown(f"<span style='color:{cor_var}; font-size:13px; font-weight:700;'>{seta} {abs(variacao_pct):.0f}%</span> <span style='color:#9CA3AF; font-size:13px;'>vs mês anterior</span>", unsafe_allow_html=True)
+
         total_pendente = 0.0
-
+        alunos_em_dia = 0
+        alunos_pacote = 0
+        alunos_por_aula = 0
         for al in alunos_todos:
             sit = situacao_financeira(al, transacoes_todas, hoje)
             total_pendente += sit["saldo"]
-            total_pago += sit["pago_total"]
+            if sit["em_dia"]:
+                alunos_em_dia += 1
+            if al.get("tipo_cobranca") == "pacote":
+                alunos_pacote += 1
+            else:
+                alunos_por_aula += 1
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total de Alunos", total_alunos)
-        c2.metric("Treinos Realizados", f"{total_treinos_dados} aulas")
-        c3.metric("Caixa Atual (Recebido)", f"R$ {total_pago:.2f}")
-        c4.metric("Valores Pendentes", f"R$ {total_pendente:.2f}", delta="-A receber", delta_color="inverse")
+        cg1, cg2 = st.columns(2)
+        with cg1:
+            with st.container(border=True):
+                st.caption("Pendente")
+                st.markdown(f"<span style='color:#EF4444; font-size:22px; font-weight:700;'>{fmt_moeda(total_pendente)}</span>", unsafe_allow_html=True)
+        with cg2:
+            with st.container(border=True):
+                st.caption("Alunos em dia")
+                st.markdown(f"<span style='color:#22C55E; font-size:22px; font-weight:700;'>{alunos_em_dia}</span>", unsafe_allow_html=True)
+
+        cg3, cg4 = st.columns(2)
+        with cg3:
+            with st.container(border=True):
+                st.caption("Pacote")
+                st.markdown(f"<span style='font-size:22px; font-weight:700;'>{alunos_pacote}</span> <span style='color:#9CA3AF; font-size:12px;'>alunos</span>", unsafe_allow_html=True)
+        with cg4:
+            with st.container(border=True):
+                st.caption("Por aula")
+                st.markdown(f"<span style='font-size:22px; font-weight:700;'>{alunos_por_aula}</span> <span style='color:#9CA3AF; font-size:12px;'>alunos</span>", unsafe_allow_html=True)
 
         st.divider()
         st.markdown("### Perfil Rápido dos Alunos")
@@ -1242,92 +1382,91 @@ else:
                                 aplicar_status(ag, aluno_dados, "desmarcado", observacao=obs_card)
 
     # ------------------------------------------
-    # 3. ALUNOS & CRM (EDIÇÃO DE PERFIL)
+    # 3. ALUNOS & CRM (LISTA + PERFIL DETALHADO)
     # ------------------------------------------
     elif menu == "👤 Alunos & CRM":
-        st.title("👤 Gestão de Alunos e PAR-Q")
+        if "aluno_detalhe_id" not in st.session_state:
+            st.session_state.aluno_detalhe_id = None
+        if "base_url_input" not in st.session_state:
+            st.session_state.base_url_input = "https://meustudio.streamlit.app"
 
-        base_app_url = st.text_input("🔗 URL Base do seu App Streamlit:", value="https://meustudio.streamlit.app")
+        aluno_sel = None
+        if st.session_state.aluno_detalhe_id:
+            aluno_sel = next((a for a in alunos_todos if a["id"] == st.session_state.aluno_detalhe_id), None)
+            if not aluno_sel:
+                st.session_state.aluno_detalhe_id = None  # aluno não existe mais (ex: foi excluído)
 
-        # --- SEÇÃO PAR-Q ---
-        if alunos_todos:
-            st.markdown("### 📜 Status e PAR-Q dos Alunos")
-            for al in alunos_todos:
-                st_parq = al.get("parq_status", "pendente")
-                
-                with st.container(border=True):
-                    c_info, c_status, c_acao = st.columns([2, 1, 1.5])
-                    
-                    with c_info:
-                        st.markdown(f"**{al['nome']}**")
-                        st.caption(f"Tel: {al.get('telefone', 'Não informado')} | Presenças: {al.get('presencas', 0)}")
-                    
-                    with c_status:
-                        if st_parq == "assinado":
-                            st.success("✅ PAR-Q Assinado")
-                            dt_a = al.get("parq_data", "")[:10]
-                            st.caption(f"Data: {dt_a}")
-                        else:
-                            st.warning("⚠️ PAR-Q Pendente")
+        # ============================================================
+        # VISÃO DE DETALHE — abre ao tocar no nome, na lista abaixo
+        # ============================================================
+        if aluno_sel:
+            if st.button("← Voltar para a lista"):
+                st.session_state.aluno_detalhe_id = None
+                st.rerun()
 
-                    with c_acao:
-                        token = al.get("parq_token")
-                        if not token:
-                            if st.button("🔑 Gerar Link", key=f"token_{al['id']}"):
-                                novo_token = str(uuid.uuid4())[:10]
-                                preparar_cliente()
-                                try:
-                                    supabase.table("alunos").update({"parq_token": novo_token}).eq("id", al["id"]).execute()
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Erro ao gerar token: {e}")
-                        else:
-                            link_parq = f"{base_app_url}/?token={token}"
-                            msg_parq = f"Olá {al['nome']}! Para iniciarmos nossos treinos com toda a segurança, por favor preencha e assine seu PAR-Q online no link a seguir: {link_parq}"
-                            
-                            tel_num = re.sub(r'\D', '', str(al.get("telefone", "")))
-                            if tel_num:
-                                link_wsp = f"https://wa.me/55{tel_num}?text={urllib.parse.quote(msg_parq)}"
-                                st.markdown(f"<a href='{link_wsp}' target='_blank'><button style='background-color:#25D366; color:white; border:none; padding:8px; border-radius:5px; width:100%;'>📱 Enviar PAR-Q</button></a>", unsafe_allow_html=True)
-                            else:
-                                st.caption("Cadastre o telefone")
+            st.title(f"👤 {aluno_sel['nome']}")
 
-                        if st_parq == "assinado":
-                            with st.expander("👁️ Ver Respostas"):
-                                resp = al.get("parq_respostas") or {}
-                                for k, v in resp.items():
-                                    cor = "🔴" if v == "Sim" else "🟢"
-                                    st.write(f"{cor} {k.upper()}: **{v}**")
+            sit_resumo = situacao_financeira(aluno_sel, transacoes_todas, hoje)
+            horarios_fixos_aluno = [s for s in series_recorrentes_todas if s.get("aluno_id") == aluno_sel["id"]]
 
-        st.divider()
+            with st.container(border=True):
+                rc1, rc2, rc3, rc4 = st.columns(4)
+                rc1.metric("Status", "Em dia ✅" if sit_resumo["em_dia"] else "Pendente 🚨")
+                rc2.metric("PAR-Q", "Assinado ✅" if aluno_sel.get("parq_status") == "assinado" else "Pendente ⚠️")
+                rc3.metric("Presenças", aluno_sel.get("presencas") or 0)
+                rc4.metric("Horários fixos", len(horarios_fixos_aluno))
 
-        # --- SEÇÃO DE EDIÇÃO DE PERFIL ---
-        if alunos_todos:
-            with st.expander("✏️ Editar Perfil do Aluno", expanded=False):
-                mapa_edicao = {al["nome"]: al for al in alunos_todos}
-                aluno_sel_nome = st.selectbox("Selecione o Aluno para Editar", list(mapa_edicao.keys()))
-                aluno_sel = mapa_edicao[aluno_sel_nome]
+            tab_dados, tab_parq, tab_horarios = st.tabs(["✏️ Dados e Plano", "📜 PAR-Q", "🗓️ Horários Fixos"])
 
-                # --- Resumo rápido do perfil (visão geral antes de editar) ---
-                sit_resumo = situacao_financeira(aluno_sel, transacoes_todas, hoje)
-                horarios_fixos_aluno = [s for s in series_recorrentes_todas if s.get("aluno_id") == aluno_sel["id"]]
+            # --- Aba PAR-Q ---
+            with tab_parq:
+                st_parq = aluno_sel.get("parq_status", "pendente")
+                if st_parq == "assinado":
+                    dt_a = (aluno_sel.get("parq_data") or "")[:10]
+                    st.success(f"✅ PAR-Q assinado em {dt_a}")
+                else:
+                    st.warning("⚠️ PAR-Q pendente")
 
-                with st.container(border=True):
-                    rc1, rc2, rc3, rc4 = st.columns(4)
-                    rc1.metric("Status", "Em dia ✅" if sit_resumo["em_dia"] else "Pendente 🚨")
-                    rc2.metric("PAR-Q", "Assinado ✅" if aluno_sel.get("parq_status") == "assinado" else "Pendente ⚠️")
-                    rc3.metric("Presenças", aluno_sel.get("presencas") or 0)
-                    rc4.metric("Horários fixos", len(horarios_fixos_aluno))
+                token = aluno_sel.get("parq_token")
+                if not token:
+                    if st.button("🔑 Gerar Link do PAR-Q"):
+                        novo_token = str(uuid.uuid4())[:10]
+                        preparar_cliente()
+                        try:
+                            supabase.table("alunos").update({"parq_token": novo_token}).eq("id", aluno_sel["id"]).execute()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao gerar token: {e}")
+                else:
+                    st.text_input("🔗 URL Base do seu App Streamlit:", key="base_url_input")
+                    link_parq = f"{st.session_state.base_url_input}/?token={token}"
+                    msg_parq = f"Olá {aluno_sel['nome']}! Para iniciarmos nossos treinos com toda a segurança, por favor preencha e assine seu PAR-Q online no link a seguir: {link_parq}"
 
+                    tel_num = re.sub(r'\D', '', str(aluno_sel.get("telefone", "")))
+                    if tel_num:
+                        link_wsp = f"https://wa.me/55{tel_num}?text={urllib.parse.quote(msg_parq)}"
+                        st.markdown(f"<a href='{link_wsp}' target='_blank'><button style='background-color:#25D366; color:white; border:none; padding:8px; border-radius:5px; width:100%;'>📱 Enviar PAR-Q</button></a>", unsafe_allow_html=True)
+                    else:
+                        st.caption("Cadastre o telefone pra poder enviar pelo WhatsApp")
+
+                if st_parq == "assinado":
+                    with st.expander("👁️ Ver Respostas"):
+                        resp = aluno_sel.get("parq_respostas") or {}
+                        for k, v in resp.items():
+                            cor = "🔴" if v == "Sim" else "🟢"
+                            st.write(f"{cor} {k.upper()}: **{v}**")
+
+            # --- Aba Dados e Plano ---
+            with tab_dados:
                 with st.form("form_editar_perfil_completo"):
                     st.markdown("#### 👤 Dados Pessoais e Contato")
                     f_nome = st.text_input("Nome Completo", value=aluno_sel.get("nome", ""))
-                    
+
                     try:
                         dt_nasc_val = datetime.strptime(aluno_sel["data_nascimento"], "%Y-%m-%d").date() if aluno_sel.get("data_nascimento") else hoje
                     except:
                         dt_nasc_val = hoje
-                        
+
                     col_p1, col_p2, col_p3 = st.columns(3)
                     with col_p1:
                         f_data_nasc = st.date_input("Data de Nascimento", value=dt_nasc_val, min_value=date(1930,1,1), max_value=hoje)
@@ -1422,9 +1561,8 @@ else:
                                 except Exception as e:
                                     st.error("Não foi possível salvar as alterações. Tente novamente em instantes.")
 
-                # --- Horários Fixos de Treino (fora do form: precisa de
-                # botões individuais de "Parar", que um st.form não permite) ---
-                st.markdown("#### 🗓️ Horários Fixos de Treino")
+            # --- Aba Horários Fixos ---
+            with tab_horarios:
                 if not horarios_fixos_aluno:
                     st.caption("Nenhum horário fixo cadastrado.")
                 else:
@@ -1458,59 +1596,118 @@ else:
                             except Exception as e:
                                 st.error("Não foi possível criar o horário fixo. Tente novamente.")
 
-        # --- SEÇÃO CADASTRO ---
-        with st.expander("➕ Cadastrar Novo Aluno"):
-            with st.form("form_novo"):
-                nome = st.text_input("Nome")
-                data_nasc = st.date_input("Data de Nascimento", min_value=date(1930, 1, 1), max_value=hoje)
-                telefone = st.text_input("WhatsApp (com DDD, só números)")
-                tipo_cob = st.selectbox("Cobrança", ["pacote", "por_aula"])
-                
-                c_v1, c_v2 = st.columns(2)
-                with c_v1:
-                    valor_pacote = st.number_input("Valor Pacote (R$)", min_value=0.0)
-                    aulas_pacote = st.number_input("Aulas por Pacote", min_value=0, value=10)
-                with c_v2:
-                    valor_aula = st.number_input("Valor Avulso (R$)", min_value=0.0)
-                    dia_venc = st.number_input("Dia de Vencimento", min_value=1, max_value=31, value=10)
+        # ============================================================
+        # VISÃO DE LISTA — toca no nome do aluno pra abrir o perfil
+        # ============================================================
+        else:
+            st.title("👤 Gestão de Alunos")
 
-                if st.form_submit_button("Salvar Aluno"):
-                    erros_novo = []
-                    if not nome or not nome.strip():
-                        erros_novo.append("O nome não pode ficar em branco.")
-                    tel_digitos_novo = re.sub(r'\D', '', telefone or "")
-                    if telefone and len(tel_digitos_novo) not in (10, 11):
-                        erros_novo.append("O WhatsApp precisa ter DDD + número (10 ou 11 dígitos).")
+            busca_aluno = st.text_input("🔍 Buscar aluno pelo nome")
+            alunos_lista = sorted(alunos_todos, key=lambda a: (a.get("nome") or "").lower())
+            if busca_aluno:
+                alunos_lista = [a for a in alunos_lista if busca_aluno.lower() in (a.get("nome") or "").lower()]
 
-                    if erros_novo:
-                        for erro in erros_novo:
-                            st.error(erro)
-                    else:
-                        with st.spinner("Salvando aluno..."):
-                            preparar_cliente()
-                            token_inicial = str(uuid.uuid4())[:10]
-                            try:
-                                supabase.table("alunos").insert({
-                                    "user_id": user_id, 
-                                    "nome": nome.strip(), 
-                                    "data_nascimento": data_nasc.isoformat(),
-                                    "telefone": telefone, 
-                                    "tipo_cobranca": tipo_cob,
-                                    "valor_pacote": valor_pacote, 
-                                    "total_aulas_pacote": aulas_pacote, 
-                                    "aulas_restantes": aulas_pacote,
-                                    "valor_aula": valor_aula, 
-                                    "vencimento": dia_venc,
-                                    "presencas": 0, 
-                                    "faltas": 0, 
-                                    "valor_pago": 0.0,
-                                    "parq_token": token_inicial, 
-                                    "parq_status": "pendente"
-                                }).execute()
-                                st.success("Aluno salvo com sucesso!")
+            if not alunos_lista:
+                st.info("Nenhum aluno encontrado." if busca_aluno else "Cadastre seu primeiro aluno logo abaixo.")
+            else:
+                for al in alunos_lista:
+                    sit_lista = situacao_financeira(al, transacoes_todas, hoje)
+                    parq_ok = al.get("parq_status") == "assinado"
+                    tag_cobranca = "Pacote" if al.get("tipo_cobranca") == "pacote" else "Por aula"
+                    valor_exibido = sit_lista["saldo"] if not sit_lista["em_dia"] else sit_lista["pago_total"]
+                    label_valor = "Pendente" if not sit_lista["em_dia"] else "Pago"
+
+                    with st.container(border=True):
+                        col_nome_tag, col_valor = st.columns([2.2, 1.3])
+                        with col_nome_tag:
+                            st.markdown(
+                                f"**{al['nome']}** &nbsp; <span class='filtro-pill' style='padding:2px 10px; font-size:11px;'>{tag_cobranca}</span>",
+                                unsafe_allow_html=True
+                            )
+                            st.caption(("PAR-Q ✅" if parq_ok else "PAR-Q ⚠️") + f"  ·  {al.get('presencas') or 0} presenças")
+                        with col_valor:
+                            cor_pill = "status-pill-vermelho" if not sit_lista["em_dia"] else "status-pill-verde"
+                            st.markdown(
+                                f"<div style='text-align:right;'>"
+                                f"<div style='font-weight:700;'>{fmt_moeda(valor_exibido)}</div>"
+                                f"<span class='status-pill {cor_pill}'>{label_valor}</span></div>",
+                                unsafe_allow_html=True
+                            )
+
+                        if not sit_lista["em_dia"]:
+                            col_btn_abrir, col_btn_cobrar = st.columns(2)
+                            with col_btn_abrir:
+                                if st.button("Abrir Perfil", key=f"abrir_{al['id']}", use_container_width=True, type="secondary"):
+                                    st.session_state.aluno_detalhe_id = al["id"]
+                                    st.rerun()
+                            with col_btn_cobrar:
+                                tel_lista = re.sub(r'\D', '', str(al.get("telefone", "")))
+                                if tel_lista:
+                                    msg_lista = f"Fala {al['nome']}! Passando pra avisar que seu pagamento está pendente. Chave para renovação: {st.session_state.chave_pix}. Valeu!"
+                                    link_lista = f"https://wa.me/55{tel_lista}?text={urllib.parse.quote(msg_lista)}"
+                                    st.markdown(f"<a href='{link_lista}' target='_blank'><button style='background:#25D366; color:white; border:none; padding:8px; border-radius:10px; width:100%; min-height:44px; font-weight:600;'>📱 Cobrar</button></a>", unsafe_allow_html=True)
+                                else:
+                                    st.button("📱 Sem telefone", key=f"semtel_{al['id']}", use_container_width=True, disabled=True)
+                        else:
+                            if st.button("Abrir Perfil", key=f"abrir_{al['id']}", use_container_width=True, type="secondary"):
+                                st.session_state.aluno_detalhe_id = al["id"]
                                 st.rerun()
-                            except Exception as e:
-                                st.error("Não foi possível cadastrar o aluno. Tente novamente em instantes.")
+
+            st.divider()
+
+            # --- SEÇÃO CADASTRO ---
+            with st.expander("➕ Cadastrar Novo Aluno"):
+                with st.form("form_novo"):
+                    nome = st.text_input("Nome")
+                    data_nasc = st.date_input("Data de Nascimento", min_value=date(1930, 1, 1), max_value=hoje)
+                    telefone = st.text_input("WhatsApp (com DDD, só números)")
+                    tipo_cob = st.selectbox("Cobrança", ["pacote", "por_aula"])
+
+                    c_v1, c_v2 = st.columns(2)
+                    with c_v1:
+                        valor_pacote = st.number_input("Valor Pacote (R$)", min_value=0.0)
+                        aulas_pacote = st.number_input("Aulas por Pacote", min_value=0, value=10)
+                    with c_v2:
+                        valor_aula = st.number_input("Valor Avulso (R$)", min_value=0.0)
+                        dia_venc = st.number_input("Dia de Vencimento", min_value=1, max_value=31, value=10)
+
+                    if st.form_submit_button("Salvar Aluno"):
+                        erros_novo = []
+                        if not nome or not nome.strip():
+                            erros_novo.append("O nome não pode ficar em branco.")
+                        tel_digitos_novo = re.sub(r'\D', '', telefone or "")
+                        if telefone and len(tel_digitos_novo) not in (10, 11):
+                            erros_novo.append("O WhatsApp precisa ter DDD + número (10 ou 11 dígitos).")
+
+                        if erros_novo:
+                            for erro in erros_novo:
+                                st.error(erro)
+                        else:
+                            with st.spinner("Salvando aluno..."):
+                                preparar_cliente()
+                                token_inicial = str(uuid.uuid4())[:10]
+                                try:
+                                    supabase.table("alunos").insert({
+                                        "user_id": user_id,
+                                        "nome": nome.strip(),
+                                        "data_nascimento": data_nasc.isoformat(),
+                                        "telefone": telefone,
+                                        "tipo_cobranca": tipo_cob,
+                                        "valor_pacote": valor_pacote,
+                                        "total_aulas_pacote": aulas_pacote,
+                                        "aulas_restantes": aulas_pacote,
+                                        "valor_aula": valor_aula,
+                                        "vencimento": dia_venc,
+                                        "presencas": 0,
+                                        "faltas": 0,
+                                        "valor_pago": 0.0,
+                                        "parq_token": token_inicial,
+                                        "parq_status": "pendente"
+                                    }).execute()
+                                    st.success("Aluno salvo com sucesso!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error("Não foi possível cadastrar o aluno. Tente novamente em instantes.")
 
     # ------------------------------------------
     # 4. FINANCEIRO GERAL
@@ -1581,33 +1778,50 @@ else:
             else:
                 for al in alunos_todos:
                     sit = situacao_financeira(al, transacoes_todas, hoje)
+                    ultimo_pag_txt = sit["ultimo_pagamento"].strftime("%d/%m/%Y") if sit["ultimo_pagamento"] else "—"
+                    vencimento_txt = f"Dia {al.get('vencimento')}" if al.get("tipo_cobranca") == "pacote" and al.get("vencimento") else "—"
 
                     with st.container(border=True):
-                        col_info, col_acao = st.columns([2.5, 1.5])
+                        col_info, col_valor = st.columns([2, 1.3])
                         with col_info:
                             st.markdown(f"**{al['nome']}**")
-                            ultimo_pag_txt = sit["ultimo_pagamento"].strftime("%d/%m/%Y") if sit["ultimo_pagamento"] else "nunca"
-                            st.caption(f"Cobrança: {al.get('tipo_cobranca', 'pacote').upper()} | Total pago: R$ {sit['pago_total']:.2f} | Último pagamento: {ultimo_pag_txt}")
-                            if not sit["em_dia"]:
-                                st.error(f"Pendente: R$ {sit['saldo']:.2f}")
-                            else:
-                                st.success("Em dia ✅")
-                        
-                        with col_acao:
-                            if not sit["em_dia"]:
-                                msg = f"Fala {al['nome']}! Tudo bem? Passando só para avisar que o seu pacote de aulas venceu. Segue a chave para renovação: {st.session_state.chave_pix}. Valeu!"
-                                
-                                telefone_salvo = al.get("telefone")
-                                telefone_texto = str(telefone_salvo) if telefone_salvo is not None else ""
-                                tel = re.sub(r'\D', '', telefone_texto)
-                                
-                                if tel:
-                                    link_whats = f"https://wa.me/55{tel}?text={urllib.parse.quote(msg)}"
-                                    st.markdown(f"<a href='{link_whats}' target='_blank'><button style='background-color:#25D366; color:white; border:none; padding:8px; border-radius:5px; width:100%; margin-bottom: 5px;'>📱 Cobrar via WhatsApp</button></a>", unsafe_allow_html=True)
-                                else:
-                                    st.caption("Sem telefone")
+                            st.caption(f"{al.get('tipo_cobranca', 'pacote').replace('_', ' ').title()} · Total pago: {fmt_moeda(sit['pago_total'])}")
+                        with col_valor:
+                            cor_pill = "status-pill-verde" if sit["em_dia"] else "status-pill-laranja"
+                            label_pill = "Pago" if sit["em_dia"] else "Pendente"
+                            st.markdown(
+                                f"<div style='text-align:right;'>"
+                                f"<div style='font-weight:700;'>{fmt_moeda(sit['saldo'] if not sit['em_dia'] else sit['pago_total'])}</div>"
+                                f"<span class='status-pill {cor_pill}'>{label_pill}</span></div>",
+                                unsafe_allow_html=True
+                            )
 
-                        with st.expander(f"💵 Registrar pagamento — {al['nome']}"):
+                        col_venc, col_pag = st.columns(2)
+                        with col_venc:
+                            st.caption(f"Vencimento: {vencimento_txt}")
+                        with col_pag:
+                            st.caption(f"Último pagamento: {ultimo_pag_txt}")
+
+                        if sit["em_dia"]:
+                            if st.button("↩️ Desfazer último pagamento", key=f"desfazer_{al['id']}", use_container_width=True, type="secondary"):
+                                with st.spinner("Desfazendo..."):
+                                    try:
+                                        if desfazer_ultimo_pagamento(al, transacoes_todas):
+                                            st.success("Último pagamento desfeito.")
+                                            st.rerun()
+                                        else:
+                                            st.warning("Não há pagamento registrado pra desfazer.")
+                                    except Exception:
+                                        st.error("Não foi possível desfazer o pagamento. Tente novamente.")
+                        else:
+                            telefone_salvo = al.get("telefone")
+                            tel = re.sub(r'\D', '', str(telefone_salvo) if telefone_salvo is not None else "")
+                            if tel:
+                                msg = f"Fala {al['nome']}! Tudo bem? Passando só para avisar que o seu pacote de aulas venceu. Segue a chave para renovação: {st.session_state.chave_pix}. Valeu!"
+                                link_whats = f"https://wa.me/55{tel}?text={urllib.parse.quote(msg)}"
+                                st.markdown(f"<a href='{link_whats}' target='_blank'><button style='background-color:#25D366; color:white; border:none; padding:8px; border-radius:10px; width:100%; min-height:44px; font-weight:600; margin-bottom:8px;'>📱 Cobrar via WhatsApp</button></a>", unsafe_allow_html=True)
+
+                        with st.expander(f"✅ Marcar pago — {al['nome']}"):
                             with st.form(f"form_pagamento_{al['id']}"):
                                 valor_default = sit["saldo"] if sit["saldo"] > 0 else float(al.get("valor_pacote") or al.get("valor_aula") or 0.0)
                                 f_valor_pag = st.number_input("Valor recebido (R$)", min_value=0.01, value=max(0.01, valor_default), key=f"valor_pag_{al['id']}")
