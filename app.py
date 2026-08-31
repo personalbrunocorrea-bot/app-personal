@@ -1409,14 +1409,30 @@ else:
             sit_resumo = situacao_financeira(aluno_sel, transacoes_todas, hoje)
             horarios_fixos_aluno = [s for s in series_recorrentes_todas if s.get("aluno_id") == aluno_sel["id"]]
 
+            preparar_cliente()
+            try:
+                res_ag_aluno = supabase.table("agendamentos").select("*").eq("aluno_id", aluno_sel["id"]).order("data_hora", desc=True).execute()
+                agendamentos_aluno = res_ag_aluno.data if res_ag_aluno.data else []
+            except Exception:
+                agendamentos_aluno = []
+
+            agora = datetime.now()
+            aulas_futuras_aluno = [
+                ag for ag in agendamentos_aluno
+                if ag.get("status") == "agendado" and parse_data_hora(ag["data_hora"]) >= agora
+            ]
+            aulas_futuras_aluno.sort(key=lambda ag: ag["data_hora"])
+
             with st.container(border=True):
-                rc1, rc2, rc3, rc4 = st.columns(4)
+                rc1, rc2, rc3 = st.columns(3)
                 rc1.metric("Status", "Em dia ✅" if sit_resumo["em_dia"] else "Pendente 🚨")
                 rc2.metric("PAR-Q", "Assinado ✅" if aluno_sel.get("parq_status") == "assinado" else "Pendente ⚠️")
                 rc3.metric("Presenças", aluno_sel.get("presencas") or 0)
-                rc4.metric("Horários fixos", len(horarios_fixos_aluno))
+                rc4, rc5 = st.columns(2)
+                rc4.metric("Aulas agendadas", len(aulas_futuras_aluno))
+                rc5.metric("Horários fixos", len(horarios_fixos_aluno))
 
-            tab_dados, tab_parq, tab_horarios = st.tabs(["✏️ Dados e Plano", "📜 PAR-Q", "🗓️ Horários Fixos"])
+            tab_dados, tab_parq, tab_horarios, tab_relatorio = st.tabs(["✏️ Dados e Plano", "📜 PAR-Q", "🗓️ Horários Fixos", "📄 Relatório"])
 
             # --- Aba PAR-Q ---
             with tab_parq:
@@ -1595,6 +1611,64 @@ else:
                                 st.rerun()
                             except Exception as e:
                                 st.error("Não foi possível criar o horário fixo. Tente novamente.")
+
+            # --- Aba Relatório ---
+            with tab_relatorio:
+                total_presencas_rel = aluno_sel.get("presencas") or 0
+                total_faltas_rel = aluno_sel.get("faltas") or 0
+
+                rr1, rr2, rr3 = st.columns(3)
+                rr1.metric("Aulas realizadas", total_presencas_rel)
+                rr2.metric("Faltas", total_faltas_rel)
+                rr3.metric("Agendadas (a fazer)", len(aulas_futuras_aluno))
+
+                proxima_aula_aluno = aulas_futuras_aluno[0] if aulas_futuras_aluno else None
+                if proxima_aula_aluno:
+                    dt_prox_aluno = parse_data_hora(proxima_aula_aluno["data_hora"])
+                    st.caption(f"⏰ Próxima aula: {dt_prox_aluno.strftime('%d/%m/%Y às %H:%M')}")
+
+                st.markdown("#### Histórico de aulas")
+                if not agendamentos_aluno:
+                    st.caption("Nenhuma aula registrada ainda.")
+                else:
+                    linhas_historico = []
+                    for ag in agendamentos_aluno:
+                        emoji_h, label_h, _ = ROTULOS_STATUS.get(ag.get("status", "agendado"), ("⏳", "Agendado", ""))
+                        linhas_historico.append({
+                            "Data": parse_data_hora(ag["data_hora"]).strftime("%d/%m/%Y %H:%M"),
+                            "Status": f"{emoji_h} {label_h}",
+                            "Observação": ag.get("observacao") or ""
+                        })
+                    st.dataframe(linhas_historico, use_container_width=True, hide_index=True, height=280)
+
+                st.divider()
+                st.markdown("#### 📱 Enviar relatório para o aluno")
+
+                msg_relatorio = (
+                    f"Olá {aluno_sel['nome']}! Aqui está um resumo do seu histórico de treinos até {hoje.strftime('%d/%m/%Y')}:\n\n"
+                    f"✅ Aulas realizadas: {total_presencas_rel}\n"
+                    f"❌ Faltas: {total_faltas_rel}\n"
+                    f"📅 Aulas agendadas (a fazer): {len(aulas_futuras_aluno)}\n"
+                )
+                if proxima_aula_aluno:
+                    dt_prox_msg = parse_data_hora(proxima_aula_aluno["data_hora"])
+                    msg_relatorio += f"\n⏰ Próxima aula: {dt_prox_msg.strftime('%d/%m/%Y às %H:%M')}\n"
+                msg_relatorio += "\nContinue assim! 💪"
+
+                with st.expander("Ver mensagem antes de enviar"):
+                    st.text(msg_relatorio)
+
+                tel_relatorio = re.sub(r'\D', '', str(aluno_sel.get("telefone", "")))
+                if tel_relatorio:
+                    link_relatorio = f"https://wa.me/55{tel_relatorio}?text={urllib.parse.quote(msg_relatorio)}"
+                    st.markdown(
+                        f"<a href='{link_relatorio}' target='_blank'>"
+                        f"<button style='background-color:#25D366; color:white; border:none; padding:10px; "
+                        f"border-radius:10px; width:100%; min-height:44px; font-weight:600;'>📱 Enviar Relatório via WhatsApp</button></a>",
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.caption("Cadastre o telefone do aluno pra poder enviar pelo WhatsApp.")
 
         # ============================================================
         # VISÃO DE LISTA — toca no nome do aluno pra abrir o perfil
