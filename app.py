@@ -1617,10 +1617,19 @@ else:
                 total_presencas_rel = aluno_sel.get("presencas") or 0
                 total_faltas_rel = aluno_sel.get("faltas") or 0
 
+                # "Agendadas" no relatório mostra só o mês atual — a lista
+                # completa (aulas_futuras_aluno) pode ir meses à frente por
+                # causa das séries fixas, mas o relatório é sobre o mês corrente.
+                aulas_agendadas_mes_atual = [
+                    ag for ag in aulas_futuras_aluno
+                    if parse_data_hora(ag["data_hora"]).month == hoje.month
+                    and parse_data_hora(ag["data_hora"]).year == hoje.year
+                ]
+
                 rr1, rr2, rr3 = st.columns(3)
                 rr1.metric("Aulas realizadas", total_presencas_rel)
                 rr2.metric("Faltas", total_faltas_rel)
-                rr3.metric("Agendadas (a fazer)", len(aulas_futuras_aluno))
+                rr3.metric(f"Agendadas em {MESES_PT[hoje.month-1]}", len(aulas_agendadas_mes_atual))
 
                 proxima_aula_aluno = aulas_futuras_aluno[0] if aulas_futuras_aluno else None
                 if proxima_aula_aluno:
@@ -1648,7 +1657,7 @@ else:
                     f"Olá {aluno_sel['nome']}! Aqui está um resumo do seu histórico de treinos até {hoje.strftime('%d/%m/%Y')}:\n\n"
                     f"✅ Aulas realizadas: {total_presencas_rel}\n"
                     f"❌ Faltas: {total_faltas_rel}\n"
-                    f"📅 Aulas agendadas (a fazer): {len(aulas_futuras_aluno)}\n"
+                    f"📅 Aulas agendadas em {MESES_PT[hoje.month-1]}: {len(aulas_agendadas_mes_atual)}\n"
                 )
                 if proxima_aula_aluno:
                     dt_prox_msg = parse_data_hora(proxima_aula_aluno["data_hora"])
