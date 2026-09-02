@@ -693,6 +693,18 @@ def manter_series_recorrentes_atualizadas(user_id):
 
     return algo_mudou
 
+def agrupar_aulas_por_mes(lista_aulas):
+    """Agrupa uma lista de agendamentos por (ano, mês), contando quantos
+    caem em cada um — usado pra mostrar 'Ago: 2 · Set: 4 · Out: 1' em vez
+    de só um número total que mistura vários meses (comum quando uma
+    série fixa já gerou aulas bem à frente)."""
+    contagem = {}
+    for ag in lista_aulas:
+        dt = parse_data_hora(ag["data_hora"])
+        chave = (dt.year, dt.month)
+        contagem[chave] = contagem.get(chave, 0) + 1
+    return dict(sorted(contagem.items()))
+
 def calcular_relatorio_mensal(alunos_todos, agendamentos_todos, ano, mes):
     """Aulas realizadas (status=presenca) por aluno no mês, e o valor
     correspondente. Pacote usa o valor proporcional por aula (valor do
@@ -1432,6 +1444,13 @@ else:
                 rc4.metric("Aulas agendadas", len(aulas_futuras_aluno))
                 rc5.metric("Horários fixos", len(horarios_fixos_aluno))
 
+                # Quebra mês a mês — o total sozinho mistura vários meses
+                # quando uma série fixa já gerou aulas bem à frente.
+                if aulas_futuras_aluno:
+                    por_mes = agrupar_aulas_por_mes(aulas_futuras_aluno)
+                    texto_por_mes = "  ·  ".join(f"{MESES_PT[m-1]}: {qtd}" for (a, m), qtd in por_mes.items())
+                    st.caption(f"📅 {texto_por_mes}")
+
             tab_dados, tab_parq, tab_horarios, tab_relatorio = st.tabs(["✏️ Dados e Plano", "📜 PAR-Q", "🗓️ Horários Fixos", "📄 Relatório"])
 
             # --- Aba PAR-Q ---
@@ -1630,6 +1649,11 @@ else:
                 rr1.metric("Aulas realizadas", total_presencas_rel)
                 rr2.metric("Faltas", total_faltas_rel)
                 rr3.metric(f"Agendadas em {MESES_PT[hoje.month-1]}", len(aulas_agendadas_mes_atual))
+
+                if aulas_futuras_aluno:
+                    por_mes_rel = agrupar_aulas_por_mes(aulas_futuras_aluno)
+                    texto_por_mes_rel = "  ·  ".join(f"{MESES_PT[m-1]}/{a}: {qtd}" for (a, m), qtd in por_mes_rel.items())
+                    st.caption(f"📅 Todos os meses agendados — {texto_por_mes_rel}")
 
                 proxima_aula_aluno = aulas_futuras_aluno[0] if aulas_futuras_aluno else None
                 if proxima_aula_aluno:
