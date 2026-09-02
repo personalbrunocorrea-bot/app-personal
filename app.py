@@ -11,7 +11,7 @@ import uuid
 # ==========================================
 # CONFIGURAÇÃO E CSS (DESIGN REFINADO)
 # ==========================================
-st.set_page_config(page_title="Assistente Personal Trainer", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Assistente Personal Trainer", page_icon="static/icon-192.png", layout="wide", initial_sidebar_state="expanded")
 
 def aplicar_estilo_customizado():
     st.markdown("""
