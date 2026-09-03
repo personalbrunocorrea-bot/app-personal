@@ -508,9 +508,11 @@ ROTULOS_STATUS = {
     "desmarcado": ("⚪", "Desmarcado", "#95A5A6"),
 }
 
-def calcular_efeito(status, tipo_cobranca):
+def calcular_efeito(status, tipo_cobranca, cortesia=False):
     # Retorna (delta_presencas, delta_faltas, delta_aulas_restantes)
     # que um status causa no saldo do aluno.
+    if cortesia:
+        return (0, 0, 0)  # cortesia nunca mexe no saldo, pacote ou por aula
     if status == "presenca":
         return (1, 0, -1 if tipo_cobranca == "pacote" else 0)
     elif status == "falta_cobrada":
@@ -530,11 +532,12 @@ def aplicar_status(ag, aluno, novo_status, observacao=None):
 
     upd_agendamento = {}
     upd_aluno = {}
+    cortesia_ag = ag.get("cortesia", False)
 
     if mudou_status:
         upd_agendamento["status"] = novo_status
-        old_p, old_f, old_a = calcular_efeito(status_antigo, aluno.get("tipo_cobranca"))
-        new_p, new_f, new_a = calcular_efeito(novo_status, aluno.get("tipo_cobranca"))
+        old_p, old_f, old_a = calcular_efeito(status_antigo, aluno.get("tipo_cobranca"), cortesia_ag)
+        new_p, new_f, new_a = calcular_efeito(novo_status, aluno.get("tipo_cobranca"), cortesia_ag)
         upd_aluno = {
             "presencas": max(0, (aluno.get("presencas") or 0) - old_p + new_p),
             "faltas": max(0, (aluno.get("faltas") or 0) - old_f + new_f),
@@ -560,7 +563,7 @@ def excluir_agendamento(ag, aluno):
     # já tinha sido marcada como presença/falta cobrada, desfaz o efeito
     # no saldo do aluno antes de excluir, senão o histórico fica errado.
     status_atual = ag.get("status", "agendado")
-    old_p, old_f, old_a = calcular_efeito(status_atual, aluno.get("tipo_cobranca"))
+    old_p, old_f, old_a = calcular_efeito(status_atual, aluno.get("tipo_cobranca"), ag.get("cortesia", False))
 
     preparar_cliente()
     try:
@@ -998,9 +1001,10 @@ else:
                 dt_inicio = ag["data_hora"]
                 dt_fim = ag["data_hora"]
 
+            tag_cortesia = " 🎁" if ag.get("cortesia") else ""
             eventos_calendario.append({
                 "id": str(ag["id"]),
-                "title": f"{nome} ({status.replace('_', ' ').title()})",
+                "title": f"{nome}{tag_cortesia} ({status.replace('_', ' ').title()})",
                 "start": dt_inicio,
                 "end": dt_fim,
                 "backgroundColor": cor,
@@ -1157,7 +1161,7 @@ else:
                     with col_pop_info:
                         st.markdown(f"**{dt_pop.strftime('%d/%m — %H:%M')} · {aluno_clicado['nome']}**")
                         emoji_pop, label_pop, cor_pop = ROTULOS_STATUS.get(status_atual_pop, ("⏳", "Agendado", "#3788d8"))
-                        st.caption(f"Status atual: {emoji_pop} {label_pop}")
+                        st.caption(f"Status atual: {emoji_pop} {label_pop}" + ("  ·  🎁 Cortesia" if ag_clicado.get("cortesia") else ""))
                     with col_pop_fechar:
                         if st.button("✖", key="fechar_popup_agenda", help="Fechar"):
                             st.session_state.agenda_popup_ag_id = None
@@ -1245,7 +1249,13 @@ else:
                     dt_fim_preview = dt_inicio_preview + DURACAO_AULA
                     st.caption(f"🕐 Aula de 1 hora — vai ficar marcada das **{dt_inicio_preview.strftime('%H:%M')}** às **{dt_fim_preview.strftime('%H:%M')}**")
 
-                    fixa_sheet = st.checkbox("🔁 Aula fixa (repete toda semana neste mesmo dia e horário)", key=f"sheet_fixa_{sufixo_key}")
+                    col_fixa_sheet, col_cortesia_sheet = st.columns(2)
+                    with col_fixa_sheet:
+                        fixa_sheet = st.checkbox("🔁 Aula fixa", key=f"sheet_fixa_{sufixo_key}", help="Repete toda semana neste mesmo dia e horário")
+                    with col_cortesia_sheet:
+                        cortesia_sheet = st.checkbox("🎁 Cortesia", key=f"sheet_cortesia_{sufixo_key}", help="Não desconta do pacote nem soma no valor devido", disabled=fixa_sheet)
+                    if fixa_sheet and cortesia_sheet:
+                        st.caption("⚠️ Cortesia não se aplica a aula fixa recorrente — desmarque uma das duas.")
 
                     if st.button("Confirmar Agendamento", key=f"confirmar_sheet_{sufixo_key}", type="primary", use_container_width=True):
                         conflito = any(
@@ -1265,7 +1275,8 @@ else:
                                         "aluno_id": mapa_nomes_sheet[aluno_novo_nome],
                                         "data_hora": dt_inicio_preview.isoformat(),
                                         "local": local_novo_sheet,
-                                        "status": "agendado"
+                                        "status": "agendado",
+                                        "cortesia": cortesia_sheet
                                     }).execute()
                                 st.session_state.agenda_novo_slot = None
                                 if conflito:
@@ -1302,7 +1313,13 @@ else:
                 dt_fim_preview_tab = dt_final_preview + DURACAO_AULA
                 st.caption(f"🕐 Aula de 1 hora — vai ficar marcada das **{dt_final_preview.strftime('%H:%M')}** às **{dt_fim_preview_tab.strftime('%H:%M')}**")
 
-                fixa_tab = st.checkbox("🔁 Aula fixa (repete toda semana neste mesmo dia e horário)", key="tab_agendar_fixa")
+                col_fixa_tab, col_cortesia_tab = st.columns(2)
+                with col_fixa_tab:
+                    fixa_tab = st.checkbox("🔁 Aula fixa", key="tab_agendar_fixa", help="Repete toda semana neste mesmo dia e horário")
+                with col_cortesia_tab:
+                    cortesia_tab = st.checkbox("🎁 Cortesia", key="tab_agendar_cortesia", help="Não desconta do pacote nem soma no valor devido", disabled=fixa_tab)
+                if fixa_tab and cortesia_tab:
+                    st.caption("⚠️ Cortesia não se aplica a aula fixa recorrente — desmarque uma das duas.")
 
                 if st.button("Agendar Horário", key="tab_agendar_confirmar", type="primary"):
                     conflito_ag = any(
@@ -1319,7 +1336,8 @@ else:
                             else:
                                 supabase.table("agendamentos").insert({
                                     "user_id": user_id, "aluno_id": mapa_nomes[al_nome],
-                                    "data_hora": dt_final_preview.isoformat(), "local": local_ag, "status": "agendado"
+                                    "data_hora": dt_final_preview.isoformat(), "local": local_ag, "status": "agendado",
+                                    "cortesia": cortesia_tab
                                 }).execute()
                             if conflito_ag:
                                 st.toast("⚠️ Já existe outro aluno agendado nesse mesmo horário.", icon="⚠️")
@@ -1354,7 +1372,8 @@ else:
                     with st.container(border=True):
                         col_info, col_badge = st.columns([3, 1.4])
                         with col_info:
-                            st.markdown(f"**{hr_str} — {aluno_dados['nome']}**")
+                            tag_cortesia_card = " 🎁" if ag.get("cortesia") else ""
+                            st.markdown(f"**{hr_str} — {aluno_dados['nome']}{tag_cortesia_card}**")
                             if ag.get("local"):
                                 st.caption(f"📍 {ag['local']}")
                         with col_badge:
