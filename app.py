@@ -617,16 +617,19 @@ def proxima_ocorrencia(dia_semana, hora, a_partir_de):
     data_alvo = a_partir_de + timedelta(days=dias_ate)
     return datetime.combine(data_alvo, hora)
 
-def criar_horario_fixo(user_id, aluno_id, primeira_data_hora, local):
+def criar_horario_fixo(user_id, aluno_id, primeira_data_hora, local, cortesia=False):
     """Registra um novo horário fixo (linha em series_recorrentes) e já
-    gera as ocorrências semanais até o horizonte de 8 semanas."""
+    gera as ocorrências semanais até o horizonte de 8 semanas. Se
+    cortesia=True, toda ocorrência gerada (inclusive as futuras, geradas
+    automaticamente por manter_series_recorrentes_atualizadas) nasce
+    marcada como cortesia — não afeta o saldo do aluno."""
     preparar_cliente()
     dia_semana = primeira_data_hora.weekday()
     hora = primeira_data_hora.time()
     res = supabase.table("series_recorrentes").insert({
         "user_id": user_id, "aluno_id": aluno_id,
         "dia_semana": dia_semana, "hora": hora.strftime("%H:%M:%S"),
-        "local": local, "ativa": True
+        "local": local, "ativa": True, "cortesia": cortesia
     }).execute()
     serie_id = res.data[0]["id"]
 
@@ -636,7 +639,7 @@ def criar_horario_fixo(user_id, aluno_id, primeira_data_hora, local):
     while cursor.date() <= limite:
         novas_linhas.append({
             "user_id": user_id, "aluno_id": aluno_id, "data_hora": cursor.isoformat(),
-            "local": local, "status": "agendado", "recorrencia_id": serie_id
+            "local": local, "status": "agendado", "recorrencia_id": serie_id, "cortesia": cortesia
         })
         cursor += timedelta(days=7)
     if novas_linhas:
@@ -687,7 +690,8 @@ def manter_series_recorrentes_atualizadas(user_id):
         while cursor.date() <= limite:
             novas_linhas.append({
                 "user_id": user_id, "aluno_id": serie["aluno_id"], "data_hora": cursor.isoformat(),
-                "local": serie.get("local") or "", "status": "agendado", "recorrencia_id": serie["id"]
+                "local": serie.get("local") or "", "status": "agendado", "recorrencia_id": serie["id"],
+                "cortesia": serie.get("cortesia", False)
             })
             cursor += timedelta(days=7)
         if novas_linhas:
@@ -1253,9 +1257,7 @@ else:
                     with col_fixa_sheet:
                         fixa_sheet = st.checkbox("🔁 Aula fixa", key=f"sheet_fixa_{sufixo_key}", help="Repete toda semana neste mesmo dia e horário")
                     with col_cortesia_sheet:
-                        cortesia_sheet = st.checkbox("🎁 Cortesia", key=f"sheet_cortesia_{sufixo_key}", help="Não desconta do pacote nem soma no valor devido", disabled=fixa_sheet)
-                    if fixa_sheet and cortesia_sheet:
-                        st.caption("⚠️ Cortesia não se aplica a aula fixa recorrente — desmarque uma das duas.")
+                        cortesia_sheet = st.checkbox("🎁 Cortesia", key=f"sheet_cortesia_{sufixo_key}", help="Não desconta do pacote nem soma no valor devido — funciona também em aula fixa")
 
                     if st.button("Confirmar Agendamento", key=f"confirmar_sheet_{sufixo_key}", type="primary", use_container_width=True):
                         conflito = any(
@@ -1268,7 +1270,7 @@ else:
                             preparar_cliente()
                             try:
                                 if fixa_sheet:
-                                    criar_horario_fixo(user_id, mapa_nomes_sheet[aluno_novo_nome], dt_inicio_preview, local_novo_sheet)
+                                    criar_horario_fixo(user_id, mapa_nomes_sheet[aluno_novo_nome], dt_inicio_preview, local_novo_sheet, cortesia=cortesia_sheet)
                                 else:
                                     supabase.table("agendamentos").insert({
                                         "user_id": user_id,
@@ -1317,9 +1319,7 @@ else:
                 with col_fixa_tab:
                     fixa_tab = st.checkbox("🔁 Aula fixa", key="tab_agendar_fixa", help="Repete toda semana neste mesmo dia e horário")
                 with col_cortesia_tab:
-                    cortesia_tab = st.checkbox("🎁 Cortesia", key="tab_agendar_cortesia", help="Não desconta do pacote nem soma no valor devido", disabled=fixa_tab)
-                if fixa_tab and cortesia_tab:
-                    st.caption("⚠️ Cortesia não se aplica a aula fixa recorrente — desmarque uma das duas.")
+                    cortesia_tab = st.checkbox("🎁 Cortesia", key="tab_agendar_cortesia", help="Não desconta do pacote nem soma no valor devido — funciona também em aula fixa")
 
                 if st.button("Agendar Horário", key="tab_agendar_confirmar", type="primary"):
                     conflito_ag = any(
@@ -1332,7 +1332,7 @@ else:
                         preparar_cliente()
                         try:
                             if fixa_tab:
-                                criar_horario_fixo(user_id, mapa_nomes[al_nome], dt_final_preview, local_ag)
+                                criar_horario_fixo(user_id, mapa_nomes[al_nome], dt_final_preview, local_ag, cortesia=cortesia_tab)
                             else:
                                 supabase.table("agendamentos").insert({
                                     "user_id": user_id, "aluno_id": mapa_nomes[al_nome],
@@ -1454,21 +1454,32 @@ else:
             ]
             aulas_futuras_aluno.sort(key=lambda ag: ag["data_hora"])
 
+            # "Aulas agendadas" mostra só o mês atual — não mistura meses
+            # futuros que uma série fixa já tenha gerado.
+            aulas_agendadas_mes_atual = [
+                ag for ag in aulas_futuras_aluno
+                if parse_data_hora(ag["data_hora"]).month == hoje.month
+                and parse_data_hora(ag["data_hora"]).year == hoje.year
+            ]
+            aulas_agendadas_mes_cobraveis = [ag for ag in aulas_agendadas_mes_atual if not ag.get("cortesia")]
+
+            if aluno_sel.get("tipo_cobranca") == "pacote":
+                valor_a_pagar_projetado = float(aluno_sel.get("valor_pacote") or 0.0) if aulas_agendadas_mes_cobraveis else 0.0
+            else:
+                valor_a_pagar_projetado = len(aulas_agendadas_mes_cobraveis) * float(aluno_sel.get("valor_aula") or 0.0)
+
             with st.container(border=True):
                 rc1, rc2, rc3 = st.columns(3)
                 rc1.metric("Status", "Em dia ✅" if sit_resumo["em_dia"] else "Pendente 🚨")
                 rc2.metric("PAR-Q", "Assinado ✅" if aluno_sel.get("parq_status") == "assinado" else "Pendente ⚠️")
                 rc3.metric("Presenças", aluno_sel.get("presencas") or 0)
                 rc4, rc5 = st.columns(2)
-                rc4.metric("Aulas agendadas", len(aulas_futuras_aluno))
+                rc4.metric(f"Agendadas em {MESES_PT[hoje.month-1]}", len(aulas_agendadas_mes_atual))
                 rc5.metric("Horários fixos", len(horarios_fixos_aluno))
 
-                # Quebra mês a mês — o total sozinho mistura vários meses
-                # quando uma série fixa já gerou aulas bem à frente.
-                if aulas_futuras_aluno:
-                    por_mes = agrupar_aulas_por_mes(aulas_futuras_aluno)
-                    texto_por_mes = "  ·  ".join(f"{MESES_PT[m-1]}: {qtd}" for (a, m), qtd in por_mes.items())
-                    st.caption(f"📅 {texto_por_mes}")
+                st.markdown(f"💰 **Valor a pagar (baseado nas aulas agendadas este mês):** {fmt_moeda(valor_a_pagar_projetado)}")
+                if len(aulas_agendadas_mes_cobraveis) < len(aulas_agendadas_mes_atual):
+                    st.caption(f"🎁 {len(aulas_agendadas_mes_atual) - len(aulas_agendadas_mes_cobraveis)} aula(s) cortesia não entram nesse valor.")
 
             tab_dados, tab_parq, tab_horarios, tab_relatorio = st.tabs(["✏️ Dados e Plano", "📜 PAR-Q", "🗓️ Horários Fixos", "📄 Relatório"])
 
@@ -1622,9 +1633,10 @@ else:
                 else:
                     for serie in horarios_fixos_aluno:
                         hora_serie_fmt = str(serie["hora"])[:5]
+                        tag_cortesia_hf = " 🎁 Cortesia" if serie.get("cortesia") else ""
                         col_hf1, col_hf2 = st.columns([4, 1])
                         with col_hf1:
-                            st.write(f"🔁 {DIAS_SEMANA_PT[serie['dia_semana']]} às {hora_serie_fmt}" + (f" — {serie['local']}" if serie.get("local") else ""))
+                            st.write(f"🔁 {DIAS_SEMANA_PT[serie['dia_semana']]} às {hora_serie_fmt}" + (f" — {serie['local']}" if serie.get("local") else "") + tag_cortesia_hf)
                         with col_hf2:
                             if st.button("Parar", key=f"parar_fixo_{serie['id']}", use_container_width=True):
                                 with st.spinner("Parando horário fixo..."):
@@ -1639,12 +1651,13 @@ else:
                     dia_novo_fixo = st.selectbox("Dia da semana", list(range(7)), format_func=lambda d: DIAS_SEMANA_PT[d], key=f"dia_fixo_{aluno_sel['id']}")
                     hora_novo_fixo = st.time_input("Horário", value=datetime.strptime("08:00", "%H:%M").time(), key=f"hora_fixo_{aluno_sel['id']}")
                     local_novo_fixo = st.text_input("📍 Local", key=f"local_fixo_{aluno_sel['id']}")
+                    cortesia_novo_fixo = st.checkbox("🎁 Cortesia (nunca desconta do pacote nem soma no valor devido)", key=f"cortesia_fixo_{aluno_sel['id']}")
 
                     if st.button("Adicionar Horário Fixo", key=f"add_fixo_{aluno_sel['id']}", type="primary"):
                         with st.spinner("Criando horário fixo e gerando as próximas aulas..."):
                             try:
                                 primeira_ocorrencia = proxima_ocorrencia(dia_novo_fixo, hora_novo_fixo, hoje)
-                                criar_horario_fixo(user_id, aluno_sel["id"], primeira_ocorrencia, local_novo_fixo)
+                                criar_horario_fixo(user_id, aluno_sel["id"], primeira_ocorrencia, local_novo_fixo, cortesia=cortesia_novo_fixo)
                                 st.success(f"Horário fixo criado! Próxima aula: {primeira_ocorrencia.strftime('%d/%m/%Y às %H:%M')}.")
                                 st.rerun()
                             except Exception as e:
@@ -1655,24 +1668,14 @@ else:
                 total_presencas_rel = aluno_sel.get("presencas") or 0
                 total_faltas_rel = aluno_sel.get("faltas") or 0
 
-                # "Agendadas" no relatório mostra só o mês atual — a lista
-                # completa (aulas_futuras_aluno) pode ir meses à frente por
-                # causa das séries fixas, mas o relatório é sobre o mês corrente.
-                aulas_agendadas_mes_atual = [
-                    ag for ag in aulas_futuras_aluno
-                    if parse_data_hora(ag["data_hora"]).month == hoje.month
-                    and parse_data_hora(ag["data_hora"]).year == hoje.year
-                ]
-
                 rr1, rr2, rr3 = st.columns(3)
                 rr1.metric("Aulas realizadas", total_presencas_rel)
                 rr2.metric("Faltas", total_faltas_rel)
                 rr3.metric(f"Agendadas em {MESES_PT[hoje.month-1]}", len(aulas_agendadas_mes_atual))
 
-                if aulas_futuras_aluno:
-                    por_mes_rel = agrupar_aulas_por_mes(aulas_futuras_aluno)
-                    texto_por_mes_rel = "  ·  ".join(f"{MESES_PT[m-1]}/{a}: {qtd}" for (a, m), qtd in por_mes_rel.items())
-                    st.caption(f"📅 Todos os meses agendados — {texto_por_mes_rel}")
+                st.markdown(f"💰 **Valor a pagar (baseado nas aulas agendadas este mês):** {fmt_moeda(valor_a_pagar_projetado)}")
+                if len(aulas_agendadas_mes_cobraveis) < len(aulas_agendadas_mes_atual):
+                    st.caption(f"🎁 {len(aulas_agendadas_mes_atual) - len(aulas_agendadas_mes_cobraveis)} aula(s) cortesia não entram nesse valor.")
 
                 proxima_aula_aluno = aulas_futuras_aluno[0] if aulas_futuras_aluno else None
                 if proxima_aula_aluno:
@@ -1701,6 +1704,7 @@ else:
                     f"✅ Aulas realizadas: {total_presencas_rel}\n"
                     f"❌ Faltas: {total_faltas_rel}\n"
                     f"📅 Aulas agendadas em {MESES_PT[hoje.month-1]}: {len(aulas_agendadas_mes_atual)}\n"
+                    f"💰 Valor a pagar este mês: {fmt_moeda(valor_a_pagar_projetado)}\n"
                 )
                 if proxima_aula_aluno:
                     dt_prox_msg = parse_data_hora(proxima_aula_aluno["data_hora"])
