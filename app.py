@@ -1683,18 +1683,32 @@ else:
                     st.caption(f"⏰ Próxima aula: {dt_prox_aluno.strftime('%d/%m/%Y às %H:%M')}")
 
                 st.markdown("#### Histórico de aulas")
+                st.caption("Aulas já realizadas mostram o histórico completo. Aulas ainda agendadas mostram só o mês atual.")
                 if not agendamentos_aluno:
                     st.caption("Nenhuma aula registrada ainda.")
                 else:
                     linhas_historico = []
                     for ag in agendamentos_aluno:
+                        # Realizadas/faltas/desmarcadas: histórico completo, sempre.
+                        # Ainda "agendado": só entra na lista se for do mês atual —
+                        # senão a tabela fica lotada de aulas de meses futuros
+                        # geradas por uma série fixa.
+                        if ag.get("status") == "agendado":
+                            dt_ag_h = parse_data_hora(ag["data_hora"])
+                            if dt_ag_h.month != hoje.month or dt_ag_h.year != hoje.year:
+                                continue
+
                         emoji_h, label_h, _ = ROTULOS_STATUS.get(ag.get("status", "agendado"), ("⏳", "Agendado", ""))
                         linhas_historico.append({
                             "Data": parse_data_hora(ag["data_hora"]).strftime("%d/%m/%Y %H:%M"),
                             "Status": f"{emoji_h} {label_h}",
+                            "🎁 Cortesia": "Sim" if ag.get("cortesia") else "",
                             "Observação": ag.get("observacao") or ""
                         })
-                    st.dataframe(linhas_historico, use_container_width=True, hide_index=True, height=280)
+                    if linhas_historico:
+                        st.dataframe(linhas_historico, use_container_width=True, hide_index=True, height=280)
+                    else:
+                        st.caption("Nada a mostrar com esse filtro.")
 
                 st.divider()
                 st.markdown("#### 📱 Enviar relatório para o aluno")
@@ -1845,7 +1859,7 @@ else:
     elif menu == "💰 Financeiro":
         st.title("💰 Gestão Financeira")
         
-        tab_alunos, tab_caixa, tab_relatorio, tab_config = st.tabs(["Mensalidades (Cobrança)", "Fluxo de Caixa e Metas", "📄 Relatório Mensal", "Configuração PIX"])
+        tab_alunos, tab_contas, tab_caixa, tab_relatorio, tab_config = st.tabs(["Mensalidades (Cobrança)", "📊 Contas a Receber", "Fluxo de Caixa e Metas", "📄 Relatório Mensal", "Configuração PIX"])
         
         with tab_config:
             st.markdown("### Configurar Mensagem de Cobrança")
@@ -1979,6 +1993,59 @@ else:
                                             st.rerun()
                                         except Exception as e:
                                             st.error("Não foi possível registrar o pagamento. Tente novamente em instantes.")
+
+        with tab_contas:
+            st.markdown("### 📊 Contas a Receber")
+            st.caption("Separa o que já está pendente de aulas já dadas do que ainda vai virar cobrança, com base nas aulas já agendadas este mês. Cortesias nunca entram nesses valores.")
+
+            preparar_cliente()
+            try:
+                res_cr = supabase.table("agendamentos").select("*").eq("user_id", user_id).execute()
+                agendamentos_cr = res_cr.data if res_cr.data else []
+            except Exception:
+                agendamentos_cr = []
+
+            linhas_cr = []
+            total_feitas_cr = 0.0
+            total_agendadas_cr = 0.0
+
+            for al in alunos_todos:
+                sit_cr = situacao_financeira(al, transacoes_todas, hoje)
+                valor_feitas = sit_cr["saldo"]
+
+                aulas_mes_cr = [
+                    ag for ag in agendamentos_cr
+                    if ag.get("aluno_id") == al["id"]
+                    and ag.get("status") == "agendado"
+                    and not ag.get("cortesia")
+                    and parse_data_hora(ag["data_hora"]).month == hoje.month
+                    and parse_data_hora(ag["data_hora"]).year == hoje.year
+                ]
+                if al.get("tipo_cobranca") == "pacote":
+                    valor_agendadas = float(al.get("valor_pacote") or 0.0) if aulas_mes_cr else 0.0
+                else:
+                    valor_agendadas = len(aulas_mes_cr) * float(al.get("valor_aula") or 0.0)
+
+                if valor_feitas > 0 or valor_agendadas > 0:
+                    linhas_cr.append({
+                        "Aluno": al["nome"],
+                        "A receber (aulas feitas)": fmt_moeda(valor_feitas),
+                        f"Projetado ({MESES_PT[hoje.month-1]})": fmt_moeda(valor_agendadas),
+                        "Total": fmt_moeda(valor_feitas + valor_agendadas)
+                    })
+                total_feitas_cr += valor_feitas
+                total_agendadas_cr += valor_agendadas
+
+            cc1, cc2, cc3 = st.columns(3)
+            cc1.metric("A receber (aulas feitas)", fmt_moeda(total_feitas_cr))
+            cc2.metric(f"Projetado ({MESES_PT[hoje.month-1]})", fmt_moeda(total_agendadas_cr))
+            cc3.metric("Total geral", fmt_moeda(total_feitas_cr + total_agendadas_cr))
+
+            st.divider()
+            if linhas_cr:
+                st.dataframe(linhas_cr, use_container_width=True, hide_index=True)
+            else:
+                st.info("Nenhum valor pendente ou projetado no momento.")
 
         with tab_caixa:
             st.markdown("### 📈 Fluxo de Caixa e Metas")
