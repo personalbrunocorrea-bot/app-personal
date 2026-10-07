@@ -1859,7 +1859,7 @@ else:
     elif menu == "💰 Financeiro":
         st.title("💰 Gestão Financeira")
         
-        tab_alunos, tab_contas, tab_caixa, tab_relatorio, tab_config = st.tabs(["Mensalidades (Cobrança)", "📊 Contas a Receber", "Fluxo de Caixa e Metas", "📄 Relatório Mensal", "Configuração PIX"])
+        tab_alunos, tab_caixa, tab_relatorio, tab_config = st.tabs(["💰 Cobrança & Recebimentos", "Fluxo de Caixa e Metas", "📄 Relatório Mensal", "Configuração PIX"])
         
         with tab_config:
             st.markdown("### Configurar Mensagem de Cobrança")
@@ -1916,12 +1916,52 @@ else:
                 )
 
         with tab_alunos:
-            st.markdown("### Status de Pagamento")
+            st.markdown("### 💰 Cobrança & Recebimentos")
+            st.caption("Pendente de aulas já dadas + projeção das aulas já agendadas este mês. Cortesias nunca entram nesses valores.")
+
+            preparar_cliente()
+            try:
+                res_cr = supabase.table("agendamentos").select("*").eq("user_id", user_id).execute()
+                agendamentos_cr = res_cr.data if res_cr.data else []
+            except Exception:
+                agendamentos_cr = []
+
+            def valor_projetado_mes(al, agendamentos_cr):
+                aulas_mes_cr = [
+                    ag for ag in agendamentos_cr
+                    if ag.get("aluno_id") == al["id"]
+                    and ag.get("status") == "agendado"
+                    and not ag.get("cortesia")
+                    and parse_data_hora(ag["data_hora"]).month == hoje.month
+                    and parse_data_hora(ag["data_hora"]).year == hoje.year
+                ]
+                if al.get("tipo_cobranca") == "pacote":
+                    valor = float(al.get("valor_pacote") or 0.0) if aulas_mes_cr else 0.0
+                else:
+                    valor = len(aulas_mes_cr) * float(al.get("valor_aula") or 0.0)
+                return valor, len(aulas_mes_cr)
+
+            total_feitas_cr = 0.0
+            total_agendadas_cr = 0.0
+            for al in alunos_todos:
+                sit_tmp = situacao_financeira(al, transacoes_todas, hoje)
+                valor_proj_tmp, _ = valor_projetado_mes(al, agendamentos_cr)
+                total_feitas_cr += sit_tmp["saldo"]
+                total_agendadas_cr += valor_proj_tmp
+
+            cc1, cc2, cc3 = st.columns(3)
+            cc1.metric("A receber (aulas feitas)", fmt_moeda(total_feitas_cr))
+            cc2.metric(f"Projetado ({MESES_PT[hoje.month-1]})", fmt_moeda(total_agendadas_cr))
+            cc3.metric("Total geral", fmt_moeda(total_feitas_cr + total_agendadas_cr))
+
+            st.divider()
+
             if not alunos_todos:
                 st.info("Nenhum aluno cadastrado.")
             else:
                 for al in alunos_todos:
                     sit = situacao_financeira(al, transacoes_todas, hoje)
+                    valor_proj, qtd_aulas_proj = valor_projetado_mes(al, agendamentos_cr)
                     ultimo_pag_txt = sit["ultimo_pagamento"].strftime("%d/%m/%Y") if sit["ultimo_pagamento"] else "—"
                     vencimento_txt = f"Dia {al.get('vencimento')}" if al.get("tipo_cobranca") == "pacote" and al.get("vencimento") else "—"
 
@@ -1939,6 +1979,9 @@ else:
                                 f"<span class='status-pill {cor_pill}'>{label_pill}</span></div>",
                                 unsafe_allow_html=True
                             )
+
+                        if valor_proj > 0:
+                            st.caption(f"📅 Projetado este mês ({qtd_aulas_proj} aula(s) agendada(s)): **{fmt_moeda(valor_proj)}**")
 
                         col_venc, col_pag = st.columns(2)
                         with col_venc:
@@ -1993,59 +2036,6 @@ else:
                                             st.rerun()
                                         except Exception as e:
                                             st.error("Não foi possível registrar o pagamento. Tente novamente em instantes.")
-
-        with tab_contas:
-            st.markdown("### 📊 Contas a Receber")
-            st.caption("Separa o que já está pendente de aulas já dadas do que ainda vai virar cobrança, com base nas aulas já agendadas este mês. Cortesias nunca entram nesses valores.")
-
-            preparar_cliente()
-            try:
-                res_cr = supabase.table("agendamentos").select("*").eq("user_id", user_id).execute()
-                agendamentos_cr = res_cr.data if res_cr.data else []
-            except Exception:
-                agendamentos_cr = []
-
-            linhas_cr = []
-            total_feitas_cr = 0.0
-            total_agendadas_cr = 0.0
-
-            for al in alunos_todos:
-                sit_cr = situacao_financeira(al, transacoes_todas, hoje)
-                valor_feitas = sit_cr["saldo"]
-
-                aulas_mes_cr = [
-                    ag for ag in agendamentos_cr
-                    if ag.get("aluno_id") == al["id"]
-                    and ag.get("status") == "agendado"
-                    and not ag.get("cortesia")
-                    and parse_data_hora(ag["data_hora"]).month == hoje.month
-                    and parse_data_hora(ag["data_hora"]).year == hoje.year
-                ]
-                if al.get("tipo_cobranca") == "pacote":
-                    valor_agendadas = float(al.get("valor_pacote") or 0.0) if aulas_mes_cr else 0.0
-                else:
-                    valor_agendadas = len(aulas_mes_cr) * float(al.get("valor_aula") or 0.0)
-
-                if valor_feitas > 0 or valor_agendadas > 0:
-                    linhas_cr.append({
-                        "Aluno": al["nome"],
-                        "A receber (aulas feitas)": fmt_moeda(valor_feitas),
-                        f"Projetado ({MESES_PT[hoje.month-1]})": fmt_moeda(valor_agendadas),
-                        "Total": fmt_moeda(valor_feitas + valor_agendadas)
-                    })
-                total_feitas_cr += valor_feitas
-                total_agendadas_cr += valor_agendadas
-
-            cc1, cc2, cc3 = st.columns(3)
-            cc1.metric("A receber (aulas feitas)", fmt_moeda(total_feitas_cr))
-            cc2.metric(f"Projetado ({MESES_PT[hoje.month-1]})", fmt_moeda(total_agendadas_cr))
-            cc3.metric("Total geral", fmt_moeda(total_feitas_cr + total_agendadas_cr))
-
-            st.divider()
-            if linhas_cr:
-                st.dataframe(linhas_cr, use_container_width=True, hide_index=True)
-            else:
-                st.info("Nenhum valor pendente ou projetado no momento.")
 
         with tab_caixa:
             st.markdown("### 📈 Fluxo de Caixa e Metas")
