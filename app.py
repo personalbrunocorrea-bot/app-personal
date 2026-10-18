@@ -500,6 +500,20 @@ def horarios_conflitam(inicio1, inicio2, duracao=DURACAO_AULA):
     fim2 = inicio2 + duracao
     return inicio1 < fim2 and inicio2 < fim1
 
+def existe_conflito(inicio, agendamentos):
+    """Versão à prova de falhas: ignora registros com data inválida/ausente
+    em vez de derrubar o agendamento."""
+    for a in agendamentos or []:
+        try:
+            if a.get("status") != "agendado":
+                continue
+            outro = parse_data_hora(a.get("data_hora"))
+            if outro is not None and horarios_conflitam(inicio, outro):
+                return True
+        except Exception:
+            continue
+    return False
+
 ROTULOS_STATUS = {
     "agendado": ("⏳", "Agendado", "#3788d8"),
     "presenca": ("✅", "Presença", "#2ECC71"),
@@ -1260,11 +1274,7 @@ else:
                         cortesia_sheet = st.checkbox("🎁 Cortesia", key=f"sheet_cortesia_{sufixo_key}", help="Não desconta do pacote nem soma no valor devido — funciona também em aula fixa")
 
                     if st.button("Confirmar Agendamento", key=f"confirmar_sheet_{sufixo_key}", type="primary", use_container_width=True):
-                        conflito = any(
-                            horarios_conflitam(dt_inicio_preview, parse_data_hora(a["data_hora"]))
-                            and a.get("status") == "agendado"
-                            for a in agendamentos
-                        )
+                        conflito = existe_conflito(dt_inicio_preview, agendamentos)
 
                         with st.spinner("Agendando..."):
                             preparar_cliente()
@@ -1285,7 +1295,7 @@ else:
                                     st.toast("⚠️ Já existe outro aluno agendado nesse mesmo horário.", icon="⚠️")
                                 st.rerun()
                             except Exception as e:
-                                st.error("Não foi possível agendar. Tente novamente em instantes.")
+                                st.error(f"Não foi possível agendar: {e}")
 
         # Legenda de cores — os status só existem como cor no calendário,
         # então sem isso não dá pra saber o que cada cor significa.
@@ -1322,11 +1332,7 @@ else:
                     cortesia_tab = st.checkbox("🎁 Cortesia", key="tab_agendar_cortesia", help="Não desconta do pacote nem soma no valor devido — funciona também em aula fixa")
 
                 if st.button("Agendar Horário", key="tab_agendar_confirmar", type="primary"):
-                    conflito_ag = any(
-                        horarios_conflitam(dt_final_preview, parse_data_hora(a["data_hora"]))
-                        and a.get("status") == "agendado"
-                        for a in agendamentos
-                    )
+                    conflito_ag = existe_conflito(dt_final_preview, agendamentos)
 
                     with st.spinner("Agendando..."):
                         preparar_cliente()
@@ -1344,7 +1350,7 @@ else:
                             st.success("Agendado!")
                             st.rerun()
                         except Exception as e:
-                            st.error("Não foi possível agendar. Tente novamente em instantes.")
+                            st.error(f"Não foi possível agendar: {e}")
 
         with tab_gerenciar:
             st.caption("Toque direto no status para marcar. Já marcou errado? É só tocar no status certo — o app corrige o saldo do aluno automaticamente.")
@@ -1926,20 +1932,39 @@ else:
             except Exception:
                 agendamentos_cr = []
 
+            col_m, col_a = st.columns(2)
+            with col_m:
+                mes_sel = st.selectbox("Mês", list(range(1, 13)), index=hoje.month - 1,
+                                       format_func=lambda m: MESES_PT[m-1], key="fin_mes_sel")
+            with col_a:
+                ano_sel = st.number_input("Ano", min_value=2020, max_value=2100, value=hoje.year, step=1, key="fin_ano_sel")
+
             def valor_projetado_mes(al, agendamentos_cr):
-                aulas_mes_cr = [
-                    ag for ag in agendamentos_cr
-                    if ag.get("aluno_id") == al["id"]
-                    and ag.get("status") == "agendado"
-                    and not ag.get("cortesia")
-                    and parse_data_hora(ag["data_hora"]).month == hoje.month
-                    and parse_data_hora(ag["data_hora"]).year == hoje.year
-                ]
+                aulas_mes_cr = []
+                for ag in agendamentos_cr:
+                    try:
+                        d = parse_data_hora(ag.get("data_hora"))
+                        if (ag.get("aluno_id") == al["id"] and ag.get("status") == "agendado"
+                                and not ag.get("cortesia") and d and d.month == mes_sel and d.year == ano_sel):
+                            aulas_mes_cr.append(ag)
+                    except Exception:
+                        continue
                 if al.get("tipo_cobranca") == "pacote":
                     valor = float(al.get("valor_pacote") or 0.0) if aulas_mes_cr else 0.0
                 else:
                     valor = len(aulas_mes_cr) * float(al.get("valor_aula") or 0.0)
                 return valor, len(aulas_mes_cr)
+
+            # Recebido no mês escolhido (entradas reais em transacoes)
+            pagamentos_mes = []
+            for t in transacoes_todas:
+                d_pag = parse_data_pagamento(t.get("data_pagamento"))
+                if d_pag and d_pag.month == mes_sel and d_pag.year == ano_sel:
+                    pagamentos_mes.append((d_pag, t))
+            recebido_mes = sum(float(t.get("valor") or 0) for _, t in pagamentos_mes)
+
+            linhas_mes = calcular_relatorio_mensal(alunos_todos, agendamentos_cr, ano_sel, mes_sel)
+            feitas_mes_valor = sum(l["Valor total (R$)"] for l in linhas_mes)
 
             total_feitas_cr = 0.0
             total_agendadas_cr = 0.0
@@ -1949,10 +1974,21 @@ else:
                 total_feitas_cr += sit_tmp["saldo"]
                 total_agendadas_cr += valor_proj_tmp
 
-            cc1, cc2, cc3 = st.columns(3)
-            cc1.metric("A receber (aulas feitas)", fmt_moeda(total_feitas_cr))
-            cc2.metric(f"Projetado ({MESES_PT[hoje.month-1]})", fmt_moeda(total_agendadas_cr))
-            cc3.metric("Total geral", fmt_moeda(total_feitas_cr + total_agendadas_cr))
+            st.markdown(f"#### {MESES_PT[mes_sel-1]} de {ano_sel}")
+            m1, m2 = st.columns(2)
+            m1.metric("✅ Recebido no mês", fmt_moeda(recebido_mes))
+            m2.metric("🏋️ Aulas dadas (valor)", fmt_moeda(feitas_mes_valor))
+            m3, m4 = st.columns(2)
+            m3.metric("📅 Ainda agendado (projeção)", fmt_moeda(total_agendadas_cr))
+            m4.metric("⏳ Pendente geral (aulas feitas)", fmt_moeda(total_feitas_cr))
+
+            if pagamentos_mes:
+                with st.expander(f"Pagamentos recebidos em {MESES_PT[mes_sel-1]} ({len(pagamentos_mes)})"):
+                    nomes_al = {a["id"]: a["nome"] for a in alunos_todos}
+                    for d_pag, t in sorted(pagamentos_mes, key=lambda x: x[0], reverse=True):
+                        st.write(f"{d_pag.strftime('%d/%m')} · {nomes_al.get(t.get('aluno_id'), '—')} · **{fmt_moeda(float(t.get('valor') or 0))}** · {t.get('descricao') or ''}")
+            else:
+                st.caption("Nenhum pagamento registrado neste mês.")
 
             st.divider()
 
@@ -1981,7 +2017,7 @@ else:
                             )
 
                         if valor_proj > 0:
-                            st.caption(f"📅 Projetado este mês ({qtd_aulas_proj} aula(s) agendada(s)): **{fmt_moeda(valor_proj)}**")
+                            st.caption(f"📅 Projetado em {MESES_PT[mes_sel-1]} ({qtd_aulas_proj} aula(s) agendada(s)): **{fmt_moeda(valor_proj)}**")
 
                         col_venc, col_pag = st.columns(2)
                         with col_venc:
